@@ -10,7 +10,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.tree import DecisionTreeRegressor
 
-from .config import PREPROCESS_DIR, RANDOM_STATE, TRAINING_DIR
+from .config import EXCLUDE_COLUMNS, PREPROCESS_DIR, RANDOM_STATE, TRAINING_DIR
 
 
 def _load_clean_data() -> pd.DataFrame:
@@ -67,8 +67,15 @@ def run_feature_selection() -> Dict[str, object]:
     if "salePrice" not in df.columns:
         raise ValueError("Expected 'salePrice' column to be present in preprocessed data.")
 
-    df = _remove_identifiers(df)
     target_col = "salePrice"
+
+    df = _remove_identifiers(df)
+    configured_exclusions = [
+        col for col in EXCLUDE_COLUMNS if col in df.columns and col != target_col
+    ]
+    if configured_exclusions:
+        df = df.drop(columns=configured_exclusions)
+
     df = df[df[target_col].notna()]  # guard, imputed already but keep safe
 
     df = _drop_low_variance(df, exclude=[target_col])
@@ -190,6 +197,7 @@ def run_feature_selection() -> Dict[str, object]:
         "numeric_features": numeric_selected,
         "categorical_features": categorical_selected,
         "dropped_correlated_features": correlated_numeric,
+        "config_excluded_columns": configured_exclusions,
         "rows": int(X.shape[0]),
         "categorical_levels": categorical_levels,
         "numeric_summary": numeric_summary,

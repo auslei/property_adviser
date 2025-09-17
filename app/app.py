@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -6,7 +7,12 @@ import joblib
 import pandas as pd
 import streamlit as st
 
-from src.config import MODELS_DIR, TRAINING_DIR
+# Ensure the project root (which contains the src package) is on the Python path.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+from src.config import MODELS_DIR, PREPROCESS_DIR, TRAINING_DIR
 
 
 @st.cache_resource
@@ -29,6 +35,16 @@ def load_resources() -> Tuple[Dict[str, object], object, Dict[str, object]]:
     model_summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
 
     return metadata, model, model_summary
+
+
+@st.cache_data
+def load_cleaned_data() -> pd.DataFrame:
+    data_path = PREPROCESS_DIR / "cleaned.parquet"
+    if not data_path.exists():
+        raise FileNotFoundError(
+            "Preprocessed data missing. Run preprocessing before viewing analytics."
+        )
+    return pd.read_parquet(data_path)
 
 
 def render_inputs(metadata: Dict[str, object]) -> Dict[str, object]:
@@ -103,6 +119,38 @@ def main():
         st.sidebar.write(f"Model file: {model_summary.get('model_path', 'N/A')}")
 
     st.sidebar.caption("Ensure preprocessing and training scripts have been run before using the app.")
+
+    st.divider()
+    st.header("Kew Price Hotspots")
+
+    try:
+        cleaned_df = load_cleaned_data()
+    except FileNotFoundError as exc:
+        st.info(str(exc))
+    else:
+        kew_df = cleaned_df[cleaned_df["suburb"].str.upper() == "KEW"]
+        if kew_df.empty:
+            st.info("No property records for Kew are available in the current dataset.")
+        else:
+            street_prices = (
+                kew_df.assign(street=kew_df["street"].fillna("Unknown"))
+                .groupby("street", dropna=False)["salePrice"]
+                .mean()
+                .sort_values(ascending=False)
+                .reset_index(name="averageSalePrice")
+            )
+
+            top_street = street_prices.iloc[0]
+            st.metric(
+                "Most expensive area in Kew",
+                f"{top_street['street']}",
+                help="Based on the highest average sale price for the available Kew records.",
+            )
+
+            chart_df = street_prices.head(10).set_index("street")
+            st.bar_chart(chart_df)
+
+            st.caption("Showing average sale price by street (top 10) for properties located in Kew.")
 
 
 if __name__ == "__main__":
