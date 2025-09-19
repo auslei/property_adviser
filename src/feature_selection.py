@@ -11,6 +11,13 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.tree import DecisionTreeRegressor
 
 from .config import EXCLUDE_COLUMNS, PREPROCESS_DIR, RANDOM_STATE, TRAINING_DIR
+from .suburb_median import (
+    GLOBAL_SUBURB_KEY,
+    HISTORY_FILENAME,
+    load_suburb_median_history,
+)
+
+TIME_FEATURES = {"saleDate"}
 
 
 def _load_clean_data() -> pd.DataFrame:
@@ -46,6 +53,73 @@ def _remove_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _attach_baseline_median(df: pd.DataFrame) -> Tuple[pd.DataFrame, str, str]:
+    history = load_suburb_median_history()
+    key_cols = ["suburb", "saleYear", "saleMonth"]
+    history = history.copy()
+
+    for col in key_cols:
+        if col == "suburb":
+            if col in history.columns:
+                history[col] = history[col].fillna("Unknown").astype(str)
+            if col in df.columns:
+                df[col] = df[col].fillna("Unknown").astype(str).str.strip()
+        else:
+            if col in history.columns:
+                history[col] = pd.to_numeric(history[col], errors="coerce").astype("Int64")
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+                df[col] = df[col].round().astype("Int64")
+
+    df = df.dropna(subset=[col for col in key_cols if col != "suburb"])
+
+    suburb_history = (
+        history[history["suburb"] != GLOBAL_SUBURB_KEY][
+            key_cols + ["medianPrice", "transactionCount"]
+        ]
+        .drop_duplicates(key_cols, keep="last")
+    )
+    suburb_history = suburb_history.rename(
+        columns={
+            "medianPrice": "baselineMedian",
+            "transactionCount": "baselineTransactions",
+        }
+    )
+
+    merged = df.merge(suburb_history, on=key_cols, how="left")
+
+    missing_mask = merged["baselineMedian"].isna()
+    if missing_mask.any():
+        global_history = (
+            history[history["suburb"] == GLOBAL_SUBURB_KEY][
+                ["saleYear", "saleMonth", "medianPrice", "transactionCount"]
+            ]
+            .drop_duplicates(["saleYear", "saleMonth"], keep="last")
+            .rename(
+                columns={
+                    "medianPrice": "baselineMedian_global",
+                    "transactionCount": "baselineTransactions_global",
+                }
+            )
+        )
+        merged = merged.merge(
+            global_history,
+            on=["saleYear", "saleMonth"],
+            how="left",
+        )
+        merged.loc[missing_mask, "baselineMedian"] = merged.loc[
+            missing_mask, "baselineMedian_global"
+        ]
+        merged.loc[missing_mask, "baselineTransactions"] = merged.loc[
+            missing_mask, "baselineTransactions_global"
+        ]
+        merged = merged.drop(columns=["baselineMedian_global", "baselineTransactions_global"])
+
+    merged["baselineTransactions"] = merged["baselineTransactions"].fillna(0)
+
+    return merged, "baselineMedian", "baselineTransactions"
+
+
 def _correlated_features(df: pd.DataFrame, numeric_columns: List[str], threshold: float = 0.9) -> List[str]:
     if not numeric_columns:
         return []
@@ -70,25 +144,42 @@ def run_feature_selection() -> Dict[str, object]:
     target_col = "salePrice"
 
     df = _remove_identifiers(df)
+    drop_time_cols = [col for col in TIME_FEATURES if col in df.columns]
+    if drop_time_cols:
+        df = df.drop(columns=drop_time_cols)
+
     configured_exclusions = [
         col for col in EXCLUDE_COLUMNS if col in df.columns and col != target_col
     ]
     if configured_exclusions:
         df = df.drop(columns=configured_exclusions)
 
-    df = df[df[target_col].notna()]  # guard, imputed already but keep safe
+    df = df[df[target_col].notna()]
 
-    df = _drop_low_variance(df, exclude=[target_col])
+    df, baseline_col, baseline_tx_col = _attach_baseline_median(df)
+    df = df[df[baseline_col].notna()]
+    df = df[df[baseline_col] > 0]
+
+    df["priceFactor"] = df[target_col] / df[baseline_col]
+    df = df.replace({"priceFactor": {np.inf: np.nan, -np.inf: np.nan}})
+    df = df[df["priceFactor"].notna()]
+    df = df[df["priceFactor"] > 0]
+
+    df = df.drop(columns=[target_col, baseline_col])
+    target_col = "priceFactor"
+
+    for numeric_key in ["saleYear", "saleMonth", baseline_tx_col]:
+        if numeric_key and numeric_key in df.columns:
+            df[numeric_key] = pd.to_numeric(df[numeric_key], errors="coerce")
+
+    preserve_columns = [target_col, "saleYear", "saleMonth", "suburb"]
+    if baseline_tx_col in df.columns:
+        preserve_columns.append(baseline_tx_col)
+
+    df = _drop_low_variance(df, exclude=preserve_columns)
 
     numeric_features = df.select_dtypes(include=[np.number]).columns.tolist()
     numeric_features = [col for col in numeric_features if col != target_col]
-
-    # treat saleDate as numeric if possible
-    if "saleDate" in df.columns:
-        if not np.issubdtype(df["saleDate"].dtype, np.number):
-            df["saleDate"] = pd.to_numeric(df["saleDate"], errors="coerce")
-        if "saleDate" not in numeric_features:
-            numeric_features.append("saleDate")
 
     categorical_features = [
         col
@@ -146,12 +237,30 @@ def run_feature_selection() -> Dict[str, object]:
 
     sorted_features = sorted(aggregated.items(), key=lambda item: item[1], reverse=True)
     if sorted_features:
-        threshold = max(0.01, sorted_features[min(len(sorted_features) - 1, 14)][1])
+        threshold_index = min(len(sorted_features) - 1, 14)
+        threshold = max(0.01, sorted_features[threshold_index][1])
         selected_features = [feat for feat, score in sorted_features if score >= threshold]
-        if len(selected_features) < min(5, len(sorted_features)):
-            selected_features = [feat for feat, _ in sorted_features[: min(5, len(sorted_features))]]
+        minimum = min(5, len(sorted_features))
+        if len(selected_features) < minimum:
+            selected_features = [feat for feat, _ in sorted_features[:minimum]]
     else:
         selected_features = numeric_features + categorical_features
+
+    priority_candidates = [
+        "street",
+        "suburb",
+        "propertyType",
+        "bed",
+        "bath",
+        "car",
+        "comparableCount",
+        "saleYear",
+        "saleMonth",
+    ]
+    priority_features = [col for col in priority_candidates if col in df.columns]
+    for feature in priority_features:
+        if feature not in selected_features:
+            selected_features.append(feature)
 
     selected_features = sorted(set(selected_features))
 
@@ -193,6 +302,12 @@ def run_feature_selection() -> Dict[str, object]:
 
     metadata = {
         "target": target_col,
+        "raw_target": "salePrice",
+        "target_type": "price_factor",
+        "baseline_lookup_keys": ["suburb", "saleYear", "saleMonth"],
+        "baseline_transactions_column": baseline_tx_col
+        if baseline_tx_col in df.columns
+        else None,
         "selected_features": selected_features,
         "numeric_features": numeric_selected,
         "categorical_features": categorical_selected,
@@ -201,6 +316,7 @@ def run_feature_selection() -> Dict[str, object]:
         "rows": int(X.shape[0]),
         "categorical_levels": categorical_levels,
         "numeric_summary": numeric_summary,
+        "baseline_history_file": HISTORY_FILENAME,
     }
     metadata_path = TRAINING_DIR / "feature_metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2))

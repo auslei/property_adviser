@@ -8,6 +8,7 @@ TRAINING_DIR = Path("data_training")
 MODELS_DIR = Path("models")
 CONFIG_DIR = Path("config")
 USER_CONFIG_PATH = CONFIG_DIR / "settings.json"
+STREET_COORDS_PATH = CONFIG_DIR / "street_coordinates.csv"
 
 RAW_DATA_PATTERN = "*.csv"
 RANDOM_STATE = 42

@@ -20,6 +20,23 @@ SPECIAL_TO_ASCII = {
     "²": "2",
 }
 
+UNIT_KEYWORDS = (
+    "unit",
+    "flat",
+    "apartment",
+    "villa",
+    "studio",
+    "duplex",
+)
+
+HOUSE_KEYWORDS = (
+    "house",
+    "detached",
+    "dwelling",
+    "residence",
+    "townhouse",
+)
+
 
 def _normalize_text(value: str) -> str:
     normalized = value
@@ -69,6 +86,19 @@ def extract_street(address: str) -> str:
     return joined.title()
 
 
+def simplify_property_type(raw_value: object) -> str:
+    if not isinstance(raw_value, str):
+        return ""
+    value = _normalize_text(raw_value).strip().lower()
+    for keyword in UNIT_KEYWORDS:
+        if keyword in value:
+            return "Unit"
+    for keyword in HOUSE_KEYWORDS:
+        if keyword in value:
+            return "House"
+    return ""
+
+
 def remove_mostly_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
     non_null_fraction = df.notna().mean()
     keep_cols = non_null_fraction[non_null_fraction >= MIN_NON_NULL_FRACTION].index.tolist()
@@ -91,7 +121,13 @@ def normalize_strings(series: pd.Series) -> pd.Series:
     return (
         series.astype(str)
         .str.strip()
-        .replace({"": np.nan, "-": np.nan, "nan": np.nan})
+        .replace({
+            "": np.nan,
+            "-": np.nan,
+            "nan": np.nan,
+            "NaT": np.nan,
+            "None": np.nan,
+        })
     )
 
 
@@ -122,6 +158,14 @@ def preprocess() -> Path:
     if "streetAddress" in combined.columns:
         combined["street"] = combined["streetAddress"].apply(extract_street)
 
+    if "street" in combined.columns:
+        combined = combined[combined["street"] != "Unknown"].copy()
+
+    if "propertyType" in combined.columns:
+        simplified = combined["propertyType"].apply(simplify_property_type)
+        combined["propertyType"] = simplified
+        combined = combined[combined["propertyType"] != ""].copy()
+
     numeric_candidates = [
         "bed",
         "bath",
@@ -146,8 +190,39 @@ def preprocess() -> Path:
         if combined[col].dtype == object:
             combined[col] = normalize_strings(combined[col])
 
+    target_col = "salePrice"
+    if target_col in combined.columns:
+        combined = combined[combined[target_col].notna()].copy()
+
+    essential_numeric = ["bed", "bath"]
+    for col in essential_numeric:
+        if col in combined.columns:
+            combined = combined[combined[col].notna()].copy()
+
+    comparable_cols = ["street", "propertyType", "bed", "bath", "car"]
+    if all(col in combined.columns for col in comparable_cols):
+        key_frame = combined[comparable_cols].copy()
+
+        def _value_token(value: object) -> str:
+            if pd.isna(value):
+                return "Unknown"
+            if isinstance(value, (int, np.integer)):
+                return str(int(value))
+            if isinstance(value, float):
+                if np.isfinite(value) and float(value).is_integer():
+                    return str(int(value))
+                return f"{value:.2f}"
+            return str(value).strip() or "Unknown"
+
+        keys = key_frame.apply(lambda row: "|".join(_value_token(val) for val in row), axis=1)
+        counts = keys.value_counts()
+        combined["comparableCount"] = keys.map(counts).fillna(0).astype(int)
+        combined = combined[combined["comparableCount"] >= 2].copy()
+
     numeric_cols = combined.select_dtypes(include=["number"]).columns.tolist()
     for col in numeric_cols:
+        if col == target_col:
+            continue
         median = combined[col].median()
         combined[col] = combined[col].fillna(median)
 
@@ -159,7 +234,6 @@ def preprocess() -> Path:
         "agency": 20,
         "landUse": 15,
         "propertyType": 15,
-        "street": 10,
     }
     for col, threshold in bucket_rules.items():
         if col in combined.columns:
