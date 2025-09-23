@@ -1,0 +1,24 @@
+split:
+  test_size: 0.2
+  random_state: 42
+models:
+  LinearRegression:
+    enabled: true
+    grid: {}
+  RandomForestRegressor:
+    enabled: true
+    grid:
+      n_estimators: [200, 400]
+      max_depth: [null, 10, 20]
+      min_samples_split: [2, 5, 10]
+      min_samples_leaf: [1, 2, 4]
+  GradientBoostingRegressor:
+    enabled: true
+    grid:
+      n_estimators: [100, 200]
+      learning_rate: [0.05, 0.1, 0.2]
+      max_depth: [2, 3, 4]
+      subsample: [0.8, 1.0]
+manual_feature_adjustments:
+  include: []
+  exclude: []

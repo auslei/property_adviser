@@ -1,0 +1,50 @@
+data_source:
+  path: data
+  pattern: "*.csv"
+  include_columns:
+    - streetAddress
+    - suburb
+    - saleDate
+    - salePrice
+    - bed
+    - bath
+    - car
+    - propertyType
+    - postcode
+cleaning:
+  required_columns:
+    - salePrice
+    - bed
+    - bath
+  category_mappings:
+    propertyType:
+      House:
+        - house
+        - townhouse
+        - dwelling
+      Unit:
+        - unit
+        - apartment
+        - flat
+        - studio
+      Other:
+        - villa
+        - duplex
+derivations:
+  street:
+    source: streetAddress
+    output: street
+    drop_unknown: true
+  street_year_median_price:
+    enabled: true
+    group_by:
+      - street
+      - saleYear
+    target: salePrice
+    aggregate: median
+    output: streetYearMedianPrice
+  postcode_prefix:
+    enabled: true
+    source: postcode
+    length: 1
+    output: postcodePrefix

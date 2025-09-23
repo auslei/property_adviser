@@ -1,0 +1,18 @@
+target: priceFactor
+baseline:
+  derive_factor: true
+  base_target: salePrice
+  baseline_column: baselineMedian
+  transactions_column: baselineTransactions
+correlation_threshold: 0.9
+drop_columns: []
+force_keep:
+  - street
+  - suburb
+  - propertyType
+  - bed
+  - bath
+  - car
+  - comparableCount
+  - saleYear
+  - saleMonth

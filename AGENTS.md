@@ -26,7 +26,7 @@
    - Trains a Gradient Boosting forecaster that models medians using time index/seasonality with suburb one-hot features, persisting the model (`models/suburb_median_model.pkl`) and metadata (`suburb_median_model_meta.json`).
    - Provides forecasted medians when a suburb/month pair lacks observations, falling back to a global baseline if necessary.
 3. **Feature Selection** (`src/feature_selection.py`)
-   - Loads the cleaned parquet, removes identifiers/time columns and user-configured exclusions (`config/settings.json`).
+   - Loads the cleaned parquet, removes identifiers/time columns, and applies exclusions defined in `config/feature_engineering.yml`.
    - Joins suburb medians to compute a `priceFactor = salePrice / baselineMedian`, dropping invalid rows and retaining `saleYear`/`saleMonth` for inference.
    - Drops low-variance fields (while preserving time keys), prunes highly correlated numerics, then fits a decision tree regressor to rank features.
    - Guarantees key locality features (`street`, `suburb`, `propertyType`, `bed`, `bath`, `car`, `comparableCount`, `saleYear`, `saleMonth`) remain when available and persists factor targets at `data_training/X.parquet` & `y.parquet` plus metadata/importance files.
@@ -53,7 +53,7 @@
   - **Feature Insights**: visualises feature importances, model metrics, and best-model parameters.
 
 ## Configuration & Customisation
-- Optional `config/settings.json` can define `exclude_columns` for feature selection.
+- Optional adjustments can be made via the YAML files in `config/` (preprocessing, feature_engineering, model).
 - Provide street coordinates for the heatmap via `config/street_coordinates.csv` (columns: `suburb`, `street`, `latitude`, `longitude`; streets should be title-cased).
 - Adjust thresholds (e.g. minimum non-null fraction, category bucketing) directly in `src/config.py` or preprocessing helpers if model requirements change.
 

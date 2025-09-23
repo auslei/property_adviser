@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -10,7 +10,14 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.tree import DecisionTreeRegressor
 
-from .config import EXCLUDE_COLUMNS, PREPROCESS_DIR, RANDOM_STATE, TRAINING_DIR
+from .config import (
+    EXCLUDE_COLUMNS,
+    FEATURE_ENGINEERING_CONFIG_PATH,
+    PREPROCESS_DIR,
+    RANDOM_STATE,
+    TRAINING_DIR,
+)
+from .configuration import load_yaml
 from .suburb_median import (
     GLOBAL_SUBURB_KEY,
     HISTORY_FILENAME,
@@ -134,14 +141,20 @@ def _correlated_features(df: pd.DataFrame, numeric_columns: List[str], threshold
     return correlated
 
 
-def run_feature_selection() -> Dict[str, object]:
+def run_feature_selection(config: Optional[Dict[str, Any]] = None) -> Dict[str, object]:
+    resolved_config = _load_feature_config(config)
     TRAINING_DIR.mkdir(parents=True, exist_ok=True)
 
     df = _load_clean_data()
     if "salePrice" not in df.columns:
         raise ValueError("Expected 'salePrice' column to be present in preprocessed data.")
 
-    target_col = "salePrice"
+    target_col = resolved_config.get("target", "priceFactor")
+    baseline_cfg = resolved_config.get("baseline", {})
+    derive_factor = baseline_cfg.get("derive_factor", True)
+    base_target_col = baseline_cfg.get("base_target", "salePrice")
+    baseline_col_name = baseline_cfg.get("baseline_column", "baselineMedian")
+    transactions_col_name = baseline_cfg.get("transactions_column", "baselineTransactions")
 
     df = _remove_identifiers(df)
     drop_time_cols = [col for col in TIME_FEATURES if col in df.columns]
@@ -154,26 +167,70 @@ def run_feature_selection() -> Dict[str, object]:
     if configured_exclusions:
         df = df.drop(columns=configured_exclusions)
 
-    df = df[df[target_col].notna()]
+    manual_existing: List[str] = []
+    manual_drop = resolved_config.get("drop_columns", [])
+    if manual_drop:
+        manual_existing = [col for col in manual_drop if col in df.columns]
+        if manual_existing:
+            df = df.drop(columns=manual_existing)
+
+    if base_target_col in df.columns:
+        df = df[df[base_target_col].notna()]
 
     df, baseline_col, baseline_tx_col = _attach_baseline_median(df)
+    if baseline_col_name != baseline_col and baseline_col in df.columns:
+        df = df.rename(columns={baseline_col: baseline_col_name})
+        baseline_col = baseline_col_name
+    if (
+        transactions_col_name
+        and baseline_tx_col
+        and transactions_col_name != baseline_tx_col
+        and baseline_tx_col in df.columns
+    ):
+        df = df.rename(columns={baseline_tx_col: transactions_col_name})
+        baseline_tx_col = transactions_col_name
+
     df = df[df[baseline_col].notna()]
     df = df[df[baseline_col] > 0]
 
-    df["priceFactor"] = df[target_col] / df[baseline_col]
-    df = df.replace({"priceFactor": {np.inf: np.nan, -np.inf: np.nan}})
-    df = df[df["priceFactor"].notna()]
-    df = df[df["priceFactor"] > 0]
-
-    df = df.drop(columns=[target_col, baseline_col])
-    target_col = "priceFactor"
+    if derive_factor:
+        numerator_col = base_target_col if base_target_col in df.columns else target_col
+        if numerator_col not in df.columns:
+            raise ValueError(
+                f"Configured base target column '{numerator_col}' is missing from dataset."
+            )
+        derived_col = target_col or "priceFactor"
+        df[derived_col] = df[numerator_col] / df[baseline_col]
+        df = df.replace({derived_col: {np.inf: np.nan, -np.inf: np.nan}})
+        df = df[df[derived_col].notna()]
+        df = df[df[derived_col] > 0]
+        if numerator_col != derived_col and numerator_col in df.columns:
+            df = df.drop(columns=[numerator_col])
+        if baseline_col in df.columns:
+            df = df.drop(columns=[baseline_col])
+        target_col = derived_col
+    else:
+        if not target_col:
+            target_col = base_target_col
+        if target_col not in df.columns and base_target_col in df.columns:
+            df = df.rename(columns={base_target_col: target_col})
+        if baseline_col in df.columns:
+            df = df.drop(columns=[baseline_col])
 
     for numeric_key in ["saleYear", "saleMonth", baseline_tx_col]:
         if numeric_key and numeric_key in df.columns:
             df[numeric_key] = pd.to_numeric(df[numeric_key], errors="coerce")
 
-    preserve_columns = [target_col, "saleYear", "saleMonth", "suburb"]
-    if baseline_tx_col in df.columns:
+    preserve_columns = list(
+        {
+            target_col,
+            "saleYear",
+            "saleMonth",
+            "suburb",
+            *(resolved_config.get("force_keep", []) or []),
+        }
+    )
+    if baseline_tx_col in df.columns and baseline_tx_col not in preserve_columns:
         preserve_columns.append(baseline_tx_col)
 
     df = _drop_low_variance(df, exclude=preserve_columns)
@@ -187,7 +244,8 @@ def run_feature_selection() -> Dict[str, object]:
         if col not in numeric_features + [target_col]
     ]
 
-    correlated_numeric = _correlated_features(df, numeric_features)
+    correlation_threshold = float(resolved_config.get("correlation_threshold", 0.9))
+    correlated_numeric = _correlated_features(df, numeric_features, threshold=correlation_threshold)
     numeric_features = [col for col in numeric_features if col not in correlated_numeric]
 
     numeric_transformer = Pipeline(
@@ -200,7 +258,7 @@ def run_feature_selection() -> Dict[str, object]:
             ("imputer", SimpleImputer(strategy="most_frequent")),
             (
                 "encoder",
-                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                OneHotEncoder(handle_unknown="ignore", sparse=False),
             ),
         ]
     )
@@ -246,7 +304,7 @@ def run_feature_selection() -> Dict[str, object]:
     else:
         selected_features = numeric_features + categorical_features
 
-    priority_candidates = [
+    default_priority = [
         "street",
         "suburb",
         "propertyType",
@@ -257,6 +315,7 @@ def run_feature_selection() -> Dict[str, object]:
         "saleYear",
         "saleMonth",
     ]
+    priority_candidates = list(dict.fromkeys((resolved_config.get("force_keep", []) or []) + default_priority))
     priority_features = [col for col in priority_candidates if col in df.columns]
     for feature in priority_features:
         if feature not in selected_features:
@@ -302,21 +361,23 @@ def run_feature_selection() -> Dict[str, object]:
 
     metadata = {
         "target": target_col,
-        "raw_target": "salePrice",
-        "target_type": "price_factor",
+        "raw_target": base_target_col,
+        "target_type": "price_factor" if derive_factor else "regression",
         "baseline_lookup_keys": ["suburb", "saleYear", "saleMonth"],
         "baseline_transactions_column": baseline_tx_col
         if baseline_tx_col in df.columns
-        else None,
+        else transactions_col_name,
         "selected_features": selected_features,
         "numeric_features": numeric_selected,
         "categorical_features": categorical_selected,
         "dropped_correlated_features": correlated_numeric,
         "config_excluded_columns": configured_exclusions,
+        "manual_drop_columns": manual_existing,
         "rows": int(X.shape[0]),
         "categorical_levels": categorical_levels,
         "numeric_summary": numeric_summary,
         "baseline_history_file": HISTORY_FILENAME,
+        "feature_config": resolved_config,
     }
     metadata_path = TRAINING_DIR / "feature_metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2))
