@@ -1,6 +1,6 @@
 target: priceFactor
 baseline:
-  derive_factor: true
+  derive_factor: false
   base_target: salePrice
   baseline_column: baselineMedian
   transactions_column: baselineTransactions

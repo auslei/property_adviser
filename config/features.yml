@@ -1,0 +1,3 @@
+ignored_columns:
+  - streetAddress
+  - openInRpdata

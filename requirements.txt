@@ -4,3 +4,6 @@ scikit-learn
 streamlit
 pyarrow
 pyyaml
+matplotlib
+seaborn
+scipy

@@ -194,21 +194,29 @@ def run_feature_selection(config: Optional[Dict[str, Any]] = None) -> Dict[str, 
     df = df[df[baseline_col] > 0]
 
     if derive_factor:
-        numerator_col = base_target_col if base_target_col in df.columns else target_col
-        if numerator_col not in df.columns:
-            raise ValueError(
-                f"Configured base target column '{numerator_col}' is missing from dataset."
-            )
-        derived_col = target_col or "priceFactor"
-        df[derived_col] = df[numerator_col] / df[baseline_col]
-        df = df.replace({derived_col: {np.inf: np.nan, -np.inf: np.nan}})
-        df = df[df[derived_col].notna()]
-        df = df[df[derived_col] > 0]
-        if numerator_col != derived_col and numerator_col in df.columns:
-            df = df.drop(columns=[numerator_col])
-        if baseline_col in df.columns:
-            df = df.drop(columns=[baseline_col])
-        target_col = derived_col
+        # Check if priceFactor already exists (calculated in preprocessing)
+        if target_col in df.columns and target_col != numerator_col:
+            # priceFactor already exists, just ensure it's clean
+            df = df.replace({target_col: {np.inf: np.nan, -np.inf: np.nan}})
+            df = df[df[target_col].notna()]
+            df = df[df[target_col] > 0]
+        else:
+            # Calculate priceFactor as before
+            numerator_col = base_target_col if base_target_col in df.columns else target_col
+            if numerator_col not in df.columns:
+                raise ValueError(
+                    f"Configured base target column '{numerator_col}' is missing from dataset."
+                )
+            derived_col = target_col or "priceFactor"
+            df[derived_col] = df[numerator_col] / df[baseline_col]
+            df = df.replace({derived_col: {np.inf: np.nan, -np.inf: np.nan}})
+            df = df[df[derived_col].notna()]
+            df = df[df[derived_col] > 0]
+            if numerator_col != derived_col and numerator_col in df.columns:
+                df = df.drop(columns=[numerator_col])
+            if baseline_col in df.columns:
+                df = df.drop(columns=[baseline_col])
+            target_col = derived_col
     else:
         if not target_col:
             target_col = base_target_col

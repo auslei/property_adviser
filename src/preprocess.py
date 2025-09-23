@@ -18,6 +18,8 @@ from .data_tracking import update_metadata_with_sources
 from .configuration import load_yaml
 
 
+DERIVED_OUTPUT_PATH = PREPROCESS_DIR / "derived.parquet"
+
 SPECIAL_TO_ASCII = {
     "²": "2",
 }
@@ -67,38 +69,49 @@ def clean_column_name(name: str, existing: Dict[str, int]) -> str:
     return new_name
 
 
-def extract_street(address: str) -> str:
+def extract_street(address: str, street_config: Dict[str, Any] = None) -> str:
+    if street_config is None:
+        street_config = {}
+        
     if not isinstance(address, str):
-        return "Unknown"
+        return street_config.get("unknown_value", "Unknown")
     cleaned = address.strip()
     if not cleaned or cleaned == "-":
-        return "Unknown"
+        return street_config.get("unknown_value", "Unknown")
     cleaned = _normalize_text(cleaned.upper())
     cleaned = cleaned.replace("  ", " ")
     cleaned = re.split(r"\s+", cleaned)
     if not cleaned:
-        return "Unknown"
+        return street_config.get("unknown_value", "Unknown")
     joined = " ".join(cleaned)
     # remove unit numbers like 3/55 or 12A
     joined = re.sub(r"^[0-9]+[A-Z]?/[0-9]+\s+", "", joined)
     joined = re.sub(r"^[0-9]+[A-Z]?\s+", "", joined)
     joined = joined.strip()
     if not joined:
-        return "Unknown"
+        return street_config.get("unknown_value", "Unknown")
     return joined.title()
 
 
-def simplify_property_type(raw_value: object) -> str:
+def simplify_property_type(raw_value: object, property_type_config: Dict[str, Any] = None) -> str:
+    if property_type_config is None:
+        property_type_config = {}
+        
     if not isinstance(raw_value, str):
-        return ""
+        return property_type_config.get("unknown_value", "")
     value = _normalize_text(raw_value).strip().lower()
-    for keyword in UNIT_KEYWORDS:
+    
+    # Use config if provided, otherwise fallback to defaults
+    unit_keywords = property_type_config.get("unit_keywords", UNIT_KEYWORDS)
+    house_keywords = property_type_config.get("house_keywords", HOUSE_KEYWORDS)
+    
+    for keyword in unit_keywords:
         if keyword in value:
-            return "Unit"
-    for keyword in HOUSE_KEYWORDS:
+            return property_type_config.get("unit_label", "Unit")
+    for keyword in house_keywords:
         if keyword in value:
-            return "House"
-    return ""
+            return property_type_config.get("house_label", "House")
+    return property_type_config.get("unknown_value", "")
 
 
 def remove_mostly_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -217,6 +230,41 @@ def _derive_postcode_prefix(
     return df
 
 
+def _derive_price_factor(
+    df: pd.DataFrame,
+    spec: Dict[str, Any],
+) -> pd.DataFrame:
+    if not spec.get("enabled", True):
+        return df
+        
+    numerator = spec.get("numerator", "salePrice")
+    denominator = spec.get("denominator", "streetYearMedianPrice")
+    output = spec.get("output", "priceFactor")
+    min_value = spec.get("min_value", 0.01)
+    
+    # Check if required columns exist
+    if numerator not in df.columns or denominator not in df.columns:
+        print(f"Warning: Missing columns for price factor calculation. Required: {numerator}, {denominator}. Available: {list(df.columns)}")
+        return df
+        
+    # Calculate price factor
+    df[output] = df[numerator] / df[denominator]
+    
+    # Handle infinite values
+    df = df.replace({output: {np.inf: np.nan, -np.inf: np.nan}})
+    
+    # Filter out invalid values
+    original_count = len(df)
+    df = df[df[output].notna()]
+    df = df[df[output] > min_value]
+    filtered_count = len(df)
+    
+    print(f"Price factor derivation: {original_count} rows -> {filtered_count} rows")
+    print(f"Price factor stats - Min: {df[output].min() if not df.empty else 'N/A'}, Max: {df[output].max() if not df.empty else 'N/A'}, Mean: {df[output].mean() if not df.empty else 'N/A'}")
+    
+    return df
+
+
 def _apply_group_aggregate(
     df: pd.DataFrame,
     spec: Dict[str, Any],
@@ -249,6 +297,7 @@ def preprocess(config: Optional[Dict[str, Any]] = None) -> Path:
     base_path = Path(data_cfg.get("path", DATA_DIR))
     pattern = data_cfg.get("pattern", RAW_DATA_PATTERN)
     include_columns = data_cfg.get("include_columns")
+    filter_columns = data_cfg.get("filter_columns", True)  # Default to True for backward compatibility
     encoding = data_cfg.get("encoding", "utf-8-sig")
 
     csv_paths = _resolve_data_paths(resolved_config)
@@ -260,15 +309,19 @@ def preprocess(config: Optional[Dict[str, Any]] = None) -> Path:
     frames: List[pd.DataFrame] = []
     for path in csv_paths:
         try:
-            df = pd.read_csv(
-                path,
-                encoding=encoding,
-                usecols=include_columns if include_columns else None,
-            )
+            # Only use usecols parameter if filter_columns is True
+            if filter_columns and include_columns:
+                df = pd.read_csv(
+                    path,
+                    encoding=encoding,
+                    usecols=include_columns,
+                )
+            else:
+                df = pd.read_csv(path, encoding=encoding)
         except ValueError:
             df = pd.read_csv(path, encoding=encoding)
-            df = _filter_columns(df, include_columns)
-        else:
+        # Apply column filtering after reading if needed
+        if filter_columns and include_columns:
             df = _filter_columns(df, include_columns)
         df["__source_file"] = path.name
         frames.append(df)
@@ -283,7 +336,7 @@ def preprocess(config: Optional[Dict[str, Any]] = None) -> Path:
         column_mapping[col] = new_name
     combined.columns = renamed_columns
 
-    if include_columns:
+    if include_columns and filter_columns:
         allowed_names = {column_mapping.get(col, col) for col in include_columns}
         allowed_names |= {"__source_file"}
         keep = [col for col in combined.columns if col in allowed_names]
@@ -294,23 +347,29 @@ def preprocess(config: Optional[Dict[str, Any]] = None) -> Path:
 
     derivations_cfg = resolved_config.get("derivations", {})
     street_spec = derivations_cfg.get("street", {})
-    street_source = street_spec.get("source", "streetAddress")
-    street_output = street_spec.get("output", "street")
-    if street_source in combined.columns:
-        combined[street_output] = combined[street_source].apply(extract_street)
-        if street_spec.get("drop_unknown", False):
-            combined = combined[combined[street_output] != "Unknown"].copy()
+    if street_spec.get("enabled", True):
+        street_source = street_spec.get("source", "streetAddress")
+        street_output = street_spec.get("output", "street")
+        if street_source in combined.columns:
+            street_config = street_spec.get("config", {})
+            combined[street_output] = combined[street_source].apply(lambda x: extract_street(x, street_config))
+            if street_spec.get("drop_unknown", False):
+                unknown_value = street_config.get("unknown_value", "Unknown")
+                combined = combined[combined[street_output] != unknown_value].copy()
 
-    if "propertyType" in combined.columns:
-        simplified = combined["propertyType"].apply(simplify_property_type)
+    property_type_spec = derivations_cfg.get("propertyType", {})
+    if property_type_spec.get("enabled", True) and "propertyType" in combined.columns:
+        property_type_config = property_type_spec.get("config", {})
+        simplified = combined["propertyType"].apply(lambda x: simplify_property_type(x, property_type_config))
         combined["propertyType"] = simplified
-        combined = combined[combined["propertyType"] != ""].copy()
+        unknown_value = property_type_config.get("unknown_value", "")
+        combined = combined[combined["propertyType"] != unknown_value].copy()
 
     cleaning_cfg = resolved_config.get("cleaning", {})
     category_mappings = cleaning_cfg.get("category_mappings", {})
     combined = _apply_category_mappings(combined, category_mappings)
 
-    numeric_candidates = [
+    numeric_candidates = resolved_config.get("numeric_candidates", [
         "bed",
         "bath",
         "car",
@@ -319,7 +378,7 @@ def preprocess(config: Optional[Dict[str, Any]] = None) -> Path:
         "yearBuilt",
         "salePrice",
         "postcode",
-    ]
+    ])
     for col in numeric_candidates:
         if col in combined.columns:
             combined[col] = coerce_numeric(combined[col])
@@ -343,7 +402,7 @@ def preprocess(config: Optional[Dict[str, Any]] = None) -> Path:
     if target_col in combined.columns:
         combined = combined[combined[target_col].notna()].copy()
 
-    comparable_cols = ["street", "propertyType", "bed", "bath", "car"]
+    comparable_cols = resolved_config.get("comparable_columns", ["street", "propertyType", "bed", "bath", "car"])
     if all(col in combined.columns for col in comparable_cols):
         key_frame = combined[comparable_cols].copy()
 
@@ -361,11 +420,17 @@ def preprocess(config: Optional[Dict[str, Any]] = None) -> Path:
         keys = key_frame.apply(lambda row: "|".join(_value_token(val) for val in row), axis=1)
         counts = keys.value_counts()
         combined["comparableCount"] = keys.map(counts).fillna(0).astype(int)
-        combined = combined[combined["comparableCount"] >= 2].copy()
+        min_comparable_count = resolved_config.get("min_comparable_count", 2)
+        combined = combined[combined["comparableCount"] >= min_comparable_count].copy()
 
     street_mean_spec = derivations_cfg.get("street_year_median_price")
     if street_mean_spec:
         combined = _apply_group_aggregate(combined, street_mean_spec)
+
+    # Apply price factor derivation right after street median price
+    price_factor_spec = derivations_cfg.get("price_factor")
+    if price_factor_spec:
+        combined = _derive_price_factor(combined, price_factor_spec)
 
     postcode_spec = derivations_cfg.get("postcode_prefix")
     if postcode_spec and postcode_spec.get("enabled", True):
@@ -385,15 +450,24 @@ def preprocess(config: Optional[Dict[str, Any]] = None) -> Path:
     for col in categorical_cols:
         combined[col] = combined[col].fillna("Unknown")
 
-    bucket_rules = {
+    bucket_rules = resolved_config.get("bucketing_rules", {
         "agency": 20,
         "landUse": 15,
         "propertyType": 15,
-    }
+    })
     for col, threshold in bucket_rules.items():
         if col in combined.columns:
             combined[col] = bucket_categorical(combined[col], threshold)
 
+    # Save the derived dataset with all columns
+    print(f"Final dataset columns: {list(combined.columns)}")
+    if "priceFactor" in combined.columns:
+        print(f"Price factor column found. Stats - Min: {combined['priceFactor'].min()}, Max: {combined['priceFactor'].max()}, Mean: {combined['priceFactor'].mean()}")
+    else:
+        print("Price factor column NOT found in final dataset")
+        
+    combined.to_parquet(DERIVED_OUTPUT_PATH, index=False)
+    
     PREPROCESS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = PREPROCESS_DIR / "cleaned.parquet"
     combined.to_parquet(output_path, index=False)

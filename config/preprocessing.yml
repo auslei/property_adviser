@@ -1,6 +1,9 @@
 data_source:
   path: data
   pattern: "*.csv"
+  # Set filter_columns to false to include all columns from the data files
+  filter_columns: false
+  # If filter_columns is true, only these columns will be included in the output
   include_columns:
     - streetAddress
     - suburb
@@ -16,6 +19,27 @@ cleaning:
     - salePrice
     - bed
     - bath
+  primary_target: salePrice
+  min_comparable_count: 2
+  comparable_columns:
+    - street
+    - propertyType
+    - bed
+    - bath
+    - car
+  numeric_candidates:
+    - bed
+    - bath
+    - car
+    - landSizeM2
+    - floorSizeM2
+    - yearBuilt
+    - salePrice
+    - postcode
+  bucketing_rules:
+    agency: 20
+    landUse: 15
+    propertyType: 15
   category_mappings:
     propertyType:
       House:
@@ -24,17 +48,38 @@ cleaning:
         - dwelling
       Unit:
         - unit
-        - apartment
-        - flat
-        - studio
-      Other:
         - villa
         - duplex
+      Apartment:
+        - flat
+        - studio
 derivations:
   street:
+    enabled: true
     source: streetAddress
     output: street
     drop_unknown: true
+    config:
+      unknown_value: Unknown
+  propertyType:
+    enabled: true
+    config:
+      unit_keywords:
+        - unit
+        - flat
+        - apartment
+        - villa
+        - studio
+        - duplex
+      house_keywords:
+        - house
+        - detached
+        - dwelling
+        - residence
+        - townhouse
+      unit_label: Unit
+      house_label: House
+      unknown_value: ""
   street_year_median_price:
     enabled: true
     group_by:
@@ -48,3 +93,9 @@ derivations:
     source: postcode
     length: 1
     output: postcodePrefix
+  price_factor:
+    enabled: true
+    numerator: salePrice
+    denominator: streetYearMedianPrice
+    output: priceFactor
+    min_value: 0.01

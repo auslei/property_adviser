@@ -77,7 +77,9 @@ if subset.empty:
 
 filter_info = {}
 
-filter_row = st.columns(5)
+# Create filter row with enough columns for all filters
+filter_row = st.columns(6)  # Increased from 5 to 6 columns to accommodate all filters
+filter_idx = 0
 
 numeric_filters = [
     ("bed", "Bedrooms"),
@@ -94,7 +96,7 @@ for idx, (column, label) in enumerate(numeric_filters):
         if not options:
             continue
         options_display = [int(option) if float(option).is_integer() else float(option) for option in options]
-        selection = filter_row[idx].selectbox(
+        selection = filter_row[filter_idx].selectbox(
             label,
             options=["All"] + options_display,
             index=0,
@@ -102,16 +104,9 @@ for idx, (column, label) in enumerate(numeric_filters):
         if selection != "All":
             subset = subset[subset[column] == selection]
             filter_info[label] = [selection]
+        filter_idx += 1
 
-street_filter = filter_row[-1].text_input("Street contains", "").strip()
-if street_filter:
-    subset = subset[subset[street_column].astype(str).str.contains(street_filter, case=False, na=False)]
-    filter_info["Street"] = [street_filter]
-
-filtered_empty = subset.empty
-if filtered_empty:
-    st.info("Filters removed all rows for the selected suburb.")
-
+# Property type filter
 property_column = "propertyType"
 if property_column in subset.columns:
     options = (
@@ -123,7 +118,7 @@ if property_column in subset.columns:
     )
     options = sorted(options)
     if options:
-        selection = filter_row[-1].selectbox(
+        selection = filter_row[filter_idx].selectbox(
             "Property type",
             options=["All"] + options,
             index=0,
@@ -131,6 +126,17 @@ if property_column in subset.columns:
         if selection != "All":
             subset = subset[subset[property_column] == selection]
             filter_info["Property type"] = [selection]
+        filter_idx += 1
+
+# Street filter
+street_filter = filter_row[filter_idx].text_input("Street contains", "").strip()
+if street_filter:
+    subset = subset[subset[street_column].astype(str).str.contains(street_filter, case=False, na=False)]
+    filter_info["Street"] = [street_filter]
+
+filtered_empty = subset.empty
+if filtered_empty:
+    st.info("Filters removed all rows for the selected suburb.")
 
 street_summary = pd.DataFrame()
 if not filtered_empty:
