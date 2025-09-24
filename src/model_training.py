@@ -13,6 +13,8 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.multioutput import MultiOutputRegressor
+from sklearn.linear_model import LinearRegression
 
 from .config import MODEL_CONFIG_PATH, MODELS_DIR, RANDOM_STATE, TRAINING_DIR
 from .configuration import load_yaml
@@ -251,7 +253,10 @@ def build_preprocessor(metadata: Dict[str, object]) -> ColumnTransformer:
     return ColumnTransformer(transformers)
 
 
-def train_models(config: Optional[Dict[str, Any]] = None):
+def train_timeseries_model(config: Optional[Dict[str, Any]] = None):
+    """
+    Train a timeseries model to predict property prices based on yearmonth, bed, bath, car, propertyType and street
+    """
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     resolved_config = _load_model_config(config)
@@ -260,8 +265,31 @@ def train_models(config: Optional[Dict[str, Any]] = None):
     random_state = int(split_cfg.get("random_state", RANDOM_STATE))
 
     X, y, metadata = _load_training_data()
-    X, training_metadata, adjustment_info = _apply_feature_adjustments(
-        X,
+    
+    # Focus on the required features for timeseries prediction
+    required_features = ["yearmonth", "bed", "bath", "car", "propertyType", "street"]
+    
+    # If yearmonth doesn't exist, create it from saleYear and saleMonth
+    if "saleYear" in X.columns and "saleMonth" in X.columns:
+        X = X.copy()
+        X["yearmonth"] = X["saleYear"] * 100 + X["saleMonth"]
+        if "yearmonth" not in metadata.get("selected_features", []):
+            selected_features = metadata.get("selected_features", [])
+            selected_features.append("yearmonth")
+            metadata["selected_features"] = selected_features
+        if "yearmonth" not in metadata.get("numeric_features", []):
+            numeric_features = metadata.get("numeric_features", [])
+            numeric_features.append("yearmonth")
+            metadata["numeric_features"] = numeric_features
+    
+    # Filter to only include relevant features
+    # Get all features that are relevant for timeseries prediction
+    relevant_feature_names = [col for col in X.columns if col in ["yearmonth", "bed", "bath", "car", "propertyType", "street"] or col in metadata.get("selected_features", [])]
+    X_filtered = X[relevant_feature_names]
+    
+    # Apply feature adjustments
+    X_filtered, training_metadata, adjustment_info = _apply_feature_adjustments(
+        X_filtered,
         metadata,
         resolved_config.get("manual_feature_adjustments"),
     )
@@ -269,27 +297,15 @@ def train_models(config: Optional[Dict[str, Any]] = None):
     models_config = resolved_config.get("models", {})
     candidate_models = _prepare_model_candidates(models_config, random_state)
 
-    target_type = training_metadata.get("target_type", "price_factor")
-    uses_baseline = target_type == "price_factor"
-
-    suburb_map: Optional[Dict[Tuple[object, int, int], float]] = None
-    global_map: Optional[Dict[Tuple[int, int], float]] = None
-    if uses_baseline:
-        suburb_map, global_map = _prepare_baseline_maps()
+    # Target is now salePrice directly, not a factor
+    target_type = "regression"  # We're predicting actual prices, not factors
 
     X_train, X_val, y_train, y_val = train_test_split(
-        X,
+        X_filtered,
         y,
         test_size=test_size,
         random_state=random_state,
     )
-
-    if uses_baseline and suburb_map and global_map:
-        baseline_train = _baseline_from_maps(X_train, suburb_map, global_map)
-        baseline_val = _baseline_from_maps(X_val, suburb_map, global_map)
-    else:
-        baseline_train = pd.Series(np.nan, index=X_train.index)
-        baseline_val = pd.Series(np.nan, index=X_val.index)
 
     # Persist split datasets for traceability
     X_train_path = TRAINING_DIR / "X_train.parquet"
@@ -299,13 +315,10 @@ def train_models(config: Optional[Dict[str, Any]] = None):
 
     train_dump = X_train.copy()
     val_dump = X_val.copy()
-    if uses_baseline:
-        train_dump = train_dump.assign(baselineMedian=baseline_train)
-        val_dump = val_dump.assign(baselineMedian=baseline_val)
     train_dump.to_parquet(X_train_path, index=False)
     val_dump.to_parquet(X_val_path, index=False)
-    y_train.to_frame(name=training_metadata["target"]).to_parquet(y_train_path, index=False)
-    y_val.to_frame(name=training_metadata["target"]).to_parquet(y_val_path, index=False)
+    y_train.to_frame(name=metadata["target"]).to_parquet(y_train_path, index=False)
+    y_val.to_frame(name=metadata["target"]).to_parquet(y_val_path, index=False)
 
     results = []
     best_model_name = None
@@ -336,32 +349,12 @@ def train_models(config: Optional[Dict[str, Any]] = None):
         predictions = tuned_pipeline.predict(X_val)
         prediction_series = pd.Series(predictions, index=X_val.index, name="prediction")
 
-        if uses_baseline:
-            valid_mask = baseline_val.notna()
-            if not valid_mask.any():
-                raise ValueError(
-                    "Baseline lookup returned no valid medians for validation set."
-                )
-            factor_mae = mean_absolute_error(y_val[valid_mask], prediction_series[valid_mask])
-            factor_rmse = mean_squared_error(y_val[valid_mask], prediction_series[valid_mask]) ** 0.5
-            factor_r2 = r2_score(y_val[valid_mask], prediction_series[valid_mask])
-
-            baseline_values = baseline_val[valid_mask]
-            actual_prices = y_val[valid_mask] * baseline_values
-            predicted_prices = prediction_series[valid_mask] * baseline_values
-
-            mae = mean_absolute_error(actual_prices, predicted_prices)
-            rmse = mean_squared_error(actual_prices, predicted_prices) ** 0.5
-            r2 = r2_score(actual_prices, predicted_prices)
-        else:
-            factor_mae = None
-            factor_rmse = None
-            factor_r2 = None
-            actual_prices = y_val
-            predicted_prices = prediction_series
-            mae = mean_absolute_error(actual_prices, predicted_prices)
-            rmse = mean_squared_error(actual_prices, predicted_prices) ** 0.5
-            r2 = r2_score(actual_prices, predicted_prices)
+        # Calculate metrics directly on price prediction
+        actual_prices = y_val
+        predicted_prices = prediction_series
+        mae = mean_absolute_error(actual_prices, predicted_prices)
+        rmse = mean_squared_error(actual_prices, predicted_prices) ** 0.5
+        r2 = r2_score(actual_prices, predicted_prices)
 
         results.append(
             {
@@ -371,9 +364,9 @@ def train_models(config: Optional[Dict[str, Any]] = None):
                 "r2": r2,
                 "best_params": tuned_params,
                 "cv_best_score": cv_best_score,
-                "factor_mae": factor_mae,
-                "factor_rmse": factor_rmse,
-                "factor_r2": factor_r2,
+                "factor_mae": None,  # Not applicable for direct price prediction
+                "factor_rmse": None,
+                "factor_r2": None,
             }
         )
 
@@ -416,6 +409,14 @@ def train_models(config: Optional[Dict[str, Any]] = None):
         "best_params": best_model_params,
         "target_type": target_type,
     }
+
+
+def train_models(config: Optional[Dict[str, Any]] = None):
+    """
+    Main function to train models - can be configured for different approaches
+    """
+    # Default to the new timeseries approach
+    return train_timeseries_model(config)
 
 
 if __name__ == "__main__":

@@ -366,6 +366,12 @@ def preprocess(config: Optional[Dict[str, Any]] = None) -> Path:
         combined = combined[combined["propertyType"] != unknown_value].copy()
 
     cleaning_cfg = resolved_config.get("cleaning", {})
+    # Optional early standardisation pass (e.g., normalise tokens before consolidation)
+    standardise_mappings = cleaning_cfg.get("standardise", {})
+    if standardise_mappings:
+        combined = _apply_category_mappings(combined, standardise_mappings)
+
+    # Consolidation mappings apply after standardisation
     category_mappings = cleaning_cfg.get("category_mappings", {})
     combined = _apply_category_mappings(combined, category_mappings)
 

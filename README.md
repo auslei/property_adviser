@@ -1,86 +1,89 @@
 # Property Analyst
 
 ## Overview
-Property Analyst builds an end-to-end workflow for forecasting next-year property sale prices from suburb-level records. The pipeline ingests raw CSV exports, standardises and enriches the data, selects the most informative attributes, trains several regression models, and exposes the best-performing model through a Streamlit UI for interactive predictions.
+End-to-end pipeline for forecasting next-year property sale prices from suburb-level CSVs. It standardises and enriches inputs, learns a factor relative to suburb-month medians, trains multiple regressors, and surfaces artefacts in a Streamlit UI for exploration.
 
 ## Repository Layout
-- `data/` – drop raw suburb-level CSV exports here (input files).
+- `data/` – drop raw suburb-level CSV exports here (inputs).
 - `data_preprocess/` – cleaned dataset (`cleaned.parquet`) and preprocessing metadata (`metadata.json`).
-- `data_training/` – feature matrix/target parquet files plus feature metadata.
+- `data_training/` – training matrices (`X.parquet`, `y.parquet`, split dumps) and feature metadata/importances.
 - `models/` – fitted model artefacts and evaluation metrics.
-- `config/` – YAML configurations for preprocessing, feature engineering, and model selection.
-- `src/` – Python modules for preprocessing, feature selection, model training, and pipeline orchestration.
-- `app/` – Streamlit overview page and shared utilities.
-- `app/pages/` – multi-page Streamlit workflows (preprocessing, feature engineering, model selection).
+- `config/` – YAML configurations for preprocessing, feature engineering, and model training.
+- `src/` – preprocessing, suburb baselines, feature selection, model training, and pipeline runner.
+- `app/` – Streamlit overview page and utilities.
+- `app/pages/` – multi-page Streamlit workflows (Preprocessing, Feature Engineering, Model Selection).
 
-## Requirements
-- Python 3.10 or newer (tested with CPython).
-- Local CSV data files located in `./data`.
-
-## Quick Start
-1. Create and activate a virtual environment:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Windows: .venv\Scripts\activate
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Place your latest property CSV exports in the `data/` directory. Multiple files are supported; they will be concatenated during preprocessing.
+## Environment Setup
+- Python 3.10+ (CPython).
+- Create a virtual environment and install deps:
+  ```bash
+  python -m venv .venv
+  source .venv/bin/activate   # Windows: .venv\Scripts\activate
+  pip install -r requirements.txt
+  ```
+- Place CSVs in `data/` (UTF‑8 with BOM accepted). Multiple files are concatenated.
 
 ## Running the Pipeline
-Run the full data-preparation and modelling workflow with:
+Run end-to-end (preprocess → baselines → features → training):
 ```bash
 python -m src.run_pipeline
 ```
-Use `--force` to regenerate the preprocessed dataset even if the raw files are unchanged:
+Force preprocessing even if raw file signatures (size/mtime) haven’t changed:
 ```bash
 python -m src.run_pipeline --force
 ```
 
-### Pipeline Components
-1. **Preprocessing (`src/preprocess.py`)**
-   - Loads raw CSVs based on `config/preprocessing.yml` (path, pattern, and column include list).
-   - Normalises column names, drops mostly empty columns, applies category mappings, and derives configurable features (e.g. street extraction, street/year aggregates, postcode prefixes).
-   - Reformats `saleDate` to `YYYYMM`, persists `saleYear`/`saleMonth`, enforces required fields, computes `comparableCount`, and writes `data_preprocess/cleaned.parquet` plus `metadata.json`.
-2. **Suburb Median Baselines (`src/suburb_median.py`)**
-   - Aggregates suburb × year-month medians and transaction counts from the cleaned dataset into `data_training/suburb_month_medians.parquet`.
-   - Fits a Gradient Boosting forecaster over the historical medians with time/seasonality features and suburb one-hot encodings, persisting the model at `models/suburb_median_model.pkl` with metadata.
-   - Supplies forecasted suburb medians when observations are missing, backing off to a global baseline where needed.
-3. **Feature Selection (`src/feature_selection.py`)**
-   - Guided by `config/feature_engineering.yml` (target choice, baseline options, correlation threshold, drop/keep lists).
-   - Removes identifiers, attaches suburb medians, derives factor targets if configured, prunes low-variance and highly correlated features, and ranks candidates with a decision tree regressor.
-   - Persists `data_training/X.parquet`, `y.parquet`, train/val splits, feature importances, and metadata describing the configuration used.
-4. **Model Training (`src/model_training.py`)**
-   - Reads `config/model.yml` to control train/validation split, manual feature adjustments, and enabled regressors/hyper-parameter grids.
-   - Supports linear models, random forest, gradient boosting, Lasso, and ElasticNet out of the box (extendable via `MODEL_FACTORY`).
-   - Evaluates price-factor or direct price targets, logs MAE/RMSE/R² metrics, and saves the best pipeline to `models/best_model.pkl` with selection metadata.
-5. **Streamlit Application (`app/app.py` & `app/pages/`)**
-   - Multi-page experience for configuring preprocessing, feature engineering, model training, and exploring the overview heatmap/prediction UI.
+### Pipeline Stages
+1. Preprocessing (`src/preprocess.py`)
+   - Normalises column names, drops <35% non‑null columns, standardises strings.
+   - Extracts `street` from `streetAddress`, simplifies `propertyType`, coerces numerics.
+   - Reformats `saleDate` to `YYYYMM`, persists `saleYear`/`saleMonth` and `comparableCount`.
+   - Optional derivations via YAML: street×year medians (`streetYearMedianPrice`), postcode prefix, and `priceFactor = salePrice / streetYearMedianPrice`.
+   - Median‑imputes numerics, fills categorical nulls, buckets sparse categories; writes `data_preprocess/cleaned.parquet` and `metadata.json`.
+2. Suburb Medians (`src/suburb_median.py`)
+   - Aggregates suburb×month medians with counts into `data_training/suburb_month_medians.parquet`.
+   - Trains a Gradient Boosting forecaster using time index + seasonality and suburb one‑hots; saves `models/suburb_median_model.pkl` and `suburb_median_model_meta.json`.
+   - Provides forecasted medians for missing suburb/month pairs with a global fallback.
+3. Feature Selection (`src/feature_selection.py`)
+   - Loads cleaned data, removes identifiers and time columns, applies exclusions from `config/feature_engineering.yml`.
+   - Joins suburb medians to compute a factor target when configured, prunes low‑variance and highly‑correlated numerics, ranks with a decision tree.
+   - Guarantees locality features (`street`, `suburb`, `propertyType`, `bed`, `bath`, `car`, `comparableCount`, `saleYear`, `saleMonth`) remain when present.
+   - Persists `X.parquet`, `y.parquet`, train/val splits, `feature_metadata.json`, and `feature_importances.json`.
+4. Model Training (`src/model_training.py`)
+   - Reads `config/model.yml` for split, manual feature adjustments, and enabled regressors/grids.
+   - Supports `LinearRegression`, `RandomForestRegressor`, `GradientBoostingRegressor`, plus `Lasso`/`ElasticNet` (via `MODEL_FACTORY`).
+   - If target is a factor, translates predictions back to price using suburb baselines before scoring; logs MAE/RMSE/R² and saves `models/best_model.pkl` with `best_model.json` and `model_metrics.json`.
 
-## Using the Streamlit App
-After the pipeline completes and the best model is saved, start the UI:
+## Streamlit Application
+Launch after artefacts exist:
 ```bash
 streamlit run app/app.py
 ```
-- **Overview**: interactive street heatmap layered on a map, correlation-driven filters, and latest model metrics. Requires `config/street_coordinates.csv` containing `suburb`, `street`, `latitude`, `longitude` (streets title-cased, suburbs upper-case, coordinates in decimal degrees).
-- **Data Preprocessing**: edit `config/preprocessing.yml`, preview raw inputs based on the configured path/pattern, and run the cleaning pipeline in-app.
-- **Feature Engineering**: tweak `config/feature_engineering.yml`, adjust correlation thresholds/targets/drop lists, and regenerate feature matrices.
-- **Model Selection**: modify `config/model.yml`, toggle candidate regressors, customise hyper-parameters, and trigger training with persisted best-model metadata.
-- **Predict**: once artefacts exist, supply property attributes to estimate next-year sale prices.
+- Overview: suburb filter, year range, basic street‑level summaries. Map/heatmap appears once `config/street_coordinates.csv` is provided (columns: `suburb`, `street`, `latitude`, `longitude`; streets title‑cased, suburbs upper‑case).
+- Pages:
+  - Data Preprocessing: run the pipeline and explore raw/cleaned/derived datasets with metadata.
+  - Feature Engineering: explore correlations, view/importances, and manage selections (interactive helpers).
+  - Model Selection: edit YAML, toggle models, grid‑search, and view persisted metrics/selection.
 
-## Updating with New Data
-1. Add the new CSV exports to `data/` (replace or append).
-2. Rerun the pipeline (`python -m src.run_pipeline --force`).
-3. Restart the Streamlit app to load the updated model artefacts.
+Note: A dedicated “Predict” form is not included yet in `app/pages/`. Predictions can be added later using the saved `best_model.pkl` and suburb median utilities.
+
+## Generated Artefacts
+- `data_preprocess/cleaned.parquet` and `metadata.json` (includes raw file signatures to detect change).
+- `data_training/suburb_month_medians.parquet` plus `models/suburb_median_model.pkl` and `suburb_median_model_meta.json`.
+- `data_training/X.parquet`, `y.parquet`, `X_train.parquet`, `X_val.parquet`, `y_train.parquet`, `y_val.parquet`, `feature_metadata.json`, `feature_importances.json`.
+- `models/best_model.pkl`, `best_model.json`, `model_metrics.json`.
+
+## Configuration
+- `config/preprocessing.yml` – data source, include list, category mappings, and derivations (street extraction, street×year medians, postcode prefix, price factor, required columns).
+- `config/feature_engineering.yml` – target type, baseline handling, correlation threshold, drop/force‑keep lists.
+- `config/model.yml` – split, enabled models, hyper‑parameter grids, and manual feature include/exclude.
+
+## Maintenance
+- Add/replace CSVs in `data/` and rerun: `python -m src.run_pipeline --force`.
+- Ensure `models/best_model.pkl` matches latest metadata before using the app.
+- Keep the virtual environment up‑to‑date (scikit‑learn, streamlit).
 
 ## Troubleshooting
-- **Missing files**: If `data_preprocess/cleaned.parquet` or other artefacts are absent, rerun the pipeline.
-- **Streamlit errors**: Ensure the virtual environment is active and that the pipeline ran successfully before launching the app.
-- **Custom workflows**: Individual steps can be run via `python -m src.preprocess`, `python -m src.feature_selection`, and `python -m src.model_training` if you need to inspect intermediate outputs.
-
-## Configuration files
-- `config/preprocessing.yml` – raw data source, column include list, category mappings, and derived feature specifications (street extraction, street/year aggregates, postcode prefixes, required columns).
-- `config/feature_engineering.yml` – target selection, baseline handling, correlation threshold, drop/force-keep lists, and factor derivation options.
-- `config/model.yml` – train/validation split, enabled regressors, hyper-parameter grids, and manual feature include/exclude overrides for training.
+- Missing artefacts: rerun the pipeline; `--force` if raw files changed outside the signature logic.
+- Streamlit errors: activate the venv and ensure artefacts are present.
+- Step-by-step: run individual modules via `python -m src.preprocess`, `python -m src.suburb_median`, `python -m src.feature_selection`, `python -m src.model_training` to inspect stages.

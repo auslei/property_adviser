@@ -21,6 +21,23 @@ cleaning:
     - bath
   primary_target: salePrice
   min_comparable_count: 2
+  # Early standardisation of raw tokens before consolidation
+  # Use this to normalise noisy inputs (AU terminology),
+  # then rely on category_mappings.propertyType for final grouping.
+  standardise:
+    propertyType:
+      apartment:
+        - apt
+        - apts
+      townhouse:
+        - town house
+        - town-house
+      unit:
+        - units
+        - unit/apartment
+      house:
+        - residence
+        - detached dwelling
   comparable_columns:
     - street
     - propertyType
@@ -53,6 +70,87 @@ cleaning:
       Apartment:
         - flat
         - studio
+    developmentZone:
+      # Residential Growth Zone (Schedules 1–3)
+      RGZ1:
+        - residential growth zone - schedule 1
+        - residential growth zone schedule 1
+        - rgz1
+      RGZ2:
+        - residential growth zone - schedule 2
+        - residential growth zone schedule 2
+        - rgz2
+      RGZ3:
+        - residential growth zone - schedule 3
+        - residential growth zone schedule 3
+        - rgz3
+      # Neighbourhood Residential Zone (Schedules 1–4)
+      NRZ1:
+        - neighbourhood residential zone - schedule 1
+        - neighbourhood residential zone schedule 1
+        - nrz1
+      NRZ2:
+        - neighbourhood residential zone - schedule 2
+        - neighbourhood residential zone schedule 2
+        - nrz2
+      NRZ3:
+        - neighbourhood residential zone - schedule 3
+        - neighbourhood residential zone schedule 3
+        - nrz3
+      NRZ4:
+        - neighbourhood residential zone - schedule 4
+        - neighbourhood residential zone schedule 4
+        - nrz4
+      # General Residential Zone (Schedules 1–3)
+      GRZ1:
+        - general residential zone - schedule 1
+        - general residential zone schedule 1
+        - grz1
+      GRZ2:
+        - general residential zone - schedule 2
+        - general residential zone schedule 2
+        - grz2
+      GRZ3:
+        - general residential zone - schedule 3
+        - general residential zone schedule 3
+        - grz3
+      # Other common zones
+      C1Z:
+        - commercial 1 zone
+        - c1z
+      C2Z:
+        - commercial 2 zone
+        - c2z
+      MUZ:
+        - mixed use zone
+        - muz
+      IN1Z:
+        - industrial 1 zone
+        - in1z
+      IN2Z:
+        - industrial 2 zone
+        - in2z
+      IN3Z:
+        - industrial 3 zone
+        - in3z
+      LDRZ:
+        - low density residential zone
+        - ldrz
+      TZ:
+        - township zone
+        - tz
+      UGZ1:
+        - urban growth zone - schedule 1
+        - urban growth zone schedule 1
+        - ugz1
+      UGZ2:
+        - urban growth zone - schedule 2
+        - urban growth zone schedule 2
+        - ugz2
+      UGZ3:
+        - urban growth zone - schedule 3
+        - urban growth zone schedule 3
+        - ugz3
 derivations:
   street:
     enabled: true
@@ -61,25 +159,6 @@ derivations:
     drop_unknown: true
     config:
       unknown_value: Unknown
-  propertyType:
-    enabled: true
-    config:
-      unit_keywords:
-        - unit
-        - flat
-        - apartment
-        - villa
-        - studio
-        - duplex
-      house_keywords:
-        - house
-        - detached
-        - dwelling
-        - residence
-        - townhouse
-      unit_label: Unit
-      house_label: House
-      unknown_value: ""
   street_year_median_price:
     enabled: true
     group_by:
@@ -91,7 +170,7 @@ derivations:
   postcode_prefix:
     enabled: true
     source: postcode
-    length: 1
+    length: 2
     output: postcodePrefix
   price_factor:
     enabled: true

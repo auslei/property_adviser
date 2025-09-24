@@ -1,3 +1,21 @@
-ignored_columns:
-  - streetAddress
-  - openInRpdata
+target: priceFactor
+baseline:
+  derive_factor: false
+  base_target: salePrice
+  baseline_column: baselineMedian
+  transactions_column: baselineTransactions
+correlation_threshold: 0.9
+exclude_columns:
+- streetAddress
+- sourceFile
+- openInRpdata
+force_keep:
+  - street
+  - suburb
+  - propertyType
+  - bed
+  - bath
+  - car
+  - comparableCount
+  - saleYear
+  - saleMonth

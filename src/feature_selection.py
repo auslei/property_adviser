@@ -27,6 +27,14 @@ from .suburb_median import (
 TIME_FEATURES = {"saleDate"}
 
 
+def _load_feature_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if config is not None:
+        return config
+    from .config import FEATURE_ENGINEERING_CONFIG_PATH
+    from .configuration import load_yaml
+    return load_yaml(FEATURE_ENGINEERING_CONFIG_PATH)
+
+
 def _load_clean_data() -> pd.DataFrame:
     data_path = PREPROCESS_DIR / "cleaned.parquet"
     if not data_path.exists():
@@ -168,7 +176,8 @@ def run_feature_selection(config: Optional[Dict[str, Any]] = None) -> Dict[str, 
         df = df.drop(columns=configured_exclusions)
 
     manual_existing: List[str] = []
-    manual_drop = resolved_config.get("drop_columns", [])
+    # Support both old 'drop_columns' and new 'exclude_columns' for backward compatibility
+    manual_drop = resolved_config.get("drop_columns", []) + resolved_config.get("exclude_columns", [])
     if manual_drop:
         manual_existing = [col for col in manual_drop if col in df.columns]
         if manual_existing:
@@ -266,7 +275,7 @@ def run_feature_selection(config: Optional[Dict[str, Any]] = None) -> Dict[str, 
             ("imputer", SimpleImputer(strategy="most_frequent")),
             (
                 "encoder",
-                OneHotEncoder(handle_unknown="ignore", sparse=False),
+                OneHotEncoder(handle_unknown="ignore"),  # Using default behavior which varies by sklearn version
             ),
         ]
     )

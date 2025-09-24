@@ -31,7 +31,7 @@ except ImportError:
     MODELS_DIR = PROJECT_ROOT / "models"
     CONFIG_DIR = PROJECT_ROOT / "config"
     PREPROCESS_CONFIG_PATH = CONFIG_DIR / "preprocessing.yml"
-    FEATURE_ENGINEERING_CONFIG_PATH = CONFIG_DIR / "feature_engineering.yml"
+    FEATURE_ENGINEERING_CONFIG_PATH = CONFIG_DIR / "features.yml"
     MODEL_CONFIG_PATH = CONFIG_DIR / "model.yml"
     STREET_COORDS_PATH = CONFIG_DIR / "street_coordinates.csv"
 

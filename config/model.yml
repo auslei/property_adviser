@@ -8,17 +8,23 @@ models:
   RandomForestRegressor:
     enabled: true
     grid:
-      n_estimators: [200, 400]
-      max_depth: [null, 10, 20]
-      min_samples_split: [2, 5, 10]
-      min_samples_leaf: [1, 2, 4]
+      model__n_estimators: [100, 200, 400]
+      model__max_depth: [None, 10, 20, 30]
+      model__min_samples_split: [2, 5, 10]
+      model__min_samples_leaf: [1, 2, 4]
   GradientBoostingRegressor:
     enabled: true
     grid:
-      n_estimators: [100, 200]
-      learning_rate: [0.05, 0.1, 0.2]
-      max_depth: [2, 3, 4]
-      subsample: [0.8, 1.0]
-manual_feature_adjustments:
-  include: []
-  exclude: []
+      model__n_estimators: [100, 200, 300]
+      model__learning_rate: [0.01, 0.05, 0.1, 0.2]
+      model__max_depth: [3, 5, 7]
+      model__subsample: [0.8, 0.9, 1.0]
+  Lasso:
+    enabled: true
+    grid:
+      model__alpha: [0.1, 1.0, 10.0, 100.0]
+  ElasticNet:
+    enabled: true
+    grid:
+      model__alpha: [0.1, 1.0, 10.0]
+      model__l1_ratio: [0.1, 0.5, 0.9]
