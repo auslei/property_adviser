@@ -20,8 +20,7 @@ from .config import (
 from .configuration import load_yaml
 from .suburb_median import (
     GLOBAL_SUBURB_KEY,
-    HISTORY_FILENAME,
-    load_suburb_median_history,
+    load_baseline_median_history,
 )
 
 TIME_FEATURES = {"saleDate"}
@@ -69,10 +68,16 @@ def _remove_identifiers(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _attach_baseline_median(df: pd.DataFrame) -> Tuple[pd.DataFrame, str, str]:
-    history = load_suburb_median_history()
+    """
+    Attach baseline medians to the dataframe for price factor calculation.
+    
+    This simplified approach uses only observed historical medians instead of
+    the complex forecasting model that was previously used.
+    """
+    history = load_baseline_median_history()
     key_cols = ["suburb", "saleYear", "saleMonth"]
-    history = history.copy()
 
+    # Ensure proper data types for key columns
     for col in key_cols:
         if col == "suburb":
             if col in history.columns:
@@ -88,21 +93,24 @@ def _attach_baseline_median(df: pd.DataFrame) -> Tuple[pd.DataFrame, str, str]:
 
     df = df.dropna(subset=[col for col in key_cols if col != "suburb"])
 
+    # Create suburb-specific medians with renamed columns
     suburb_history = (
         history[history["suburb"] != GLOBAL_SUBURB_KEY][
             key_cols + ["medianPrice", "transactionCount"]
         ]
         .drop_duplicates(key_cols, keep="last")
-    )
-    suburb_history = suburb_history.rename(
-        columns={
-            "medianPrice": "baselineMedian",
-            "transactionCount": "baselineTransactions",
-        }
+        .rename(
+            columns={
+                "medianPrice": "baselineMedian",
+                "transactionCount": "baselineTransactions",
+            }
+        )
     )
 
+    # Merge suburb medians with main dataframe
     merged = df.merge(suburb_history, on=key_cols, how="left")
 
+    # Handle missing suburb medians by falling back to global medians
     missing_mask = merged["baselineMedian"].isna()
     if missing_mask.any():
         global_history = (
@@ -130,6 +138,7 @@ def _attach_baseline_median(df: pd.DataFrame) -> Tuple[pd.DataFrame, str, str]:
         ]
         merged = merged.drop(columns=["baselineMedian_global", "baselineTransactions_global"])
 
+    # Fill any remaining missing transaction counts with 0
     merged["baselineTransactions"] = merged["baselineTransactions"].fillna(0)
 
     return merged, "baselineMedian", "baselineTransactions"

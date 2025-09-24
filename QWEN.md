@@ -44,7 +44,7 @@ The project is organized into 4 main phases:
 - Added automatic feature recommendation system based on correlation/association strength
 - Implemented improved UI with recommended features list and training dataset generation
 - Added categorical-categorical association analysis with threshold filtering
-- Introduced "Auto Select Features" button for automated feature selection
+- Implemented 'Auto Select Features' button for automated feature selection
 - Fixed "Use All Features" functionality to properly update feature selections
 - Added X,y training data preview with linked datasets display
 - Consolidated configuration files (features.yml and feature_engineering.yml)
@@ -56,7 +56,6 @@ The project is organized into 4 main phases:
 - Added proper hyperparameter grid configurations for each model type
 - Fixed LinearRegression parameter validation issues by ensuring empty grid configuration
 - Added training data preview with X,y datasets samples
-- Implemented detailed model performance metrics visualization
 - Enhanced error handling with full traceback information
 
 ### Model Prediction Implementation
@@ -65,6 +64,13 @@ The project is organized into 4 main phases:
 - Added confidence intervals for prediction uncertainty quantification
 - Integrated with best performing model from model selection phase
 - Provided user-friendly interface for all required prediction features
+
+### Suburb Median Simplification
+- Eliminated unnecessary machine learning forecasting model for median prediction
+- Simplified approach uses only observed historical medians with global fallback
+- Removed complex dependencies (scikit-learn ML components)
+- Improved maintainability and reduced code complexity
+- Maintained backward compatibility with existing interfaces
 
 ## Key Features Implemented
 
@@ -86,12 +92,19 @@ The project is organized into 4 main phases:
 3. **Confidence Intervals**: Uncertainty quantification for all predictions
 4. **Model Information**: Display of best performing model and its hyperparameters
 
+### Suburb Median Simplification
+1. **Simplified Median Computation**: Uses only observed historical data instead of ML forecasting
+2. **Reduced Complexity**: Eliminated 150+ lines of unnecessary ML code and dependencies
+3. **Improved Reliability**: Deterministic results based on actual data rather than ML predictions
+4. **Better Performance**: Faster execution without ML model overhead
+
 ## Files Structure
 
 ### Core Modules
 - `src/model_training.py`: Enhanced with timeseries-focused approach
 - `src/model_prediction.py`: New module for prediction functionality
 - `src/feature_selection.py`: Updated with improved categorical analysis
+- `src/suburb_median.py`: Simplified baseline median computation
 
 ### Streamlit Pages
 - `app/pages/1_Data_Preprocessing.py`: Existing preprocessing page
