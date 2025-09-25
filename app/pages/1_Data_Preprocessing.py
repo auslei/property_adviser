@@ -7,15 +7,20 @@ import pandas as pd
 import streamlit as st
 import json
 
-from utils import (
+from src.common.app_utils import (
     load_cleaned_data,
     load_training_sets,
     preview_raw_files,
     read_yaml_config,
 )
 
-from src.config import PREPROCESS_CONFIG_PATH, PREPROCESS_DIR
-from src.preprocess import preprocess, DERIVED_OUTPUT_PATH
+from src.common.app_utils import PREPROCESS_CONFIG_PATH, PREPROCESS_DIR
+from src.preprocess import preprocess
+
+from src.common.config import load_config
+
+pp_cfg = load_config(Path(PREPROCESS_CONFIG_PATH))
+DERIVED_OUTPUT_PATH = pp_cfg['derived_path']
 
 
 st.set_page_config(page_title="Data Preprocessing", layout="wide")

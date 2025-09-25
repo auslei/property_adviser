@@ -1,10 +1,16 @@
 import pandas as pd
 import streamlit as st
+import sys
+from pathlib import Path
 
-from utils import (
-    load_cleaned_data,
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+
+from src.common.app_utils import (
+    load_cleaned_data
 )
-
 
 st.set_page_config(page_title="Property Price Overview", layout="wide")
 st.title("Property Price Overview")

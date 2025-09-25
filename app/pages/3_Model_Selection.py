@@ -5,7 +5,7 @@ import json
 import yaml
 from pathlib import Path
 
-from utils import (
+from src.common.app_utils import (
     load_training_sets,
     load_model_metrics,
     read_yaml_config,

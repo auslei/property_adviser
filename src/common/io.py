@@ -1,40 +1,62 @@
 # src/common/io.py
 from pathlib import Path
 import pandas as pd
+from typing import List
 from .app_logging import log, warn
+import os
 
 
 def save_parquet_or_csv(df: pd.DataFrame, path: Path) -> Path:
     """
-    Save DataFrame to Parquet at `path`. If Parquet write fails, fall back to CSV
-    with the same name but .csv extension. Returns the final path used.
+    Save DataFrame to Parquet or CSV based on the file extension of `path`.
+    Returns the final path used. Raises ValueError if extension unsupported.
     """
-    try:
+    path = Path(path)
+    ext = path.suffix.lower()
+
+    if ext == ".parquet":
         df.to_parquet(path, index=False)
         log("io.write_parquet", path=str(path), rows=int(df.shape[0]), cols=int(df.shape[1]))
         return path
-    except Exception as e:
-        alt = path.with_suffix(".csv")
-        warn("io.write_parquet", path=str(path), error=str(e), fallback=str(alt))
-        df.to_csv(alt, index=False)
-        log("io.write_csv", path=str(alt), rows=int(df.shape[0]), cols=int(df.shape[1]))
-        return alt
+
+    if ext == ".csv":
+        df.to_csv(path, index=False)
+        log("io.write_csv", path=str(path), rows=int(df.shape[0]), cols=int(df.shape[1]))
+        return path
+
+    raise ValueError(f"Unsupported file extension '{ext}'. Use .parquet or .csv.")
 
 
 def load_parquet_or_csv(path: Path) -> pd.DataFrame:
     """
-    Load DataFrame from Parquet if available, otherwise fall back to CSV.
-    Raises FileNotFoundError if neither exists.
+    Load DataFrame from Parquet or CSV based on the file extension of `path`.
+    Raises FileNotFoundError if file does not exist, or ValueError if unsupported extension.
     """
-    parquet_path = path.with_suffix(".parquet")
-    csv_path = path.with_suffix(".csv")
+    path = Path(path)
+    ext = path.suffix.lower()
 
-    if parquet_path.exists():
-        log("io.read_parquet", path=str(parquet_path))
-        return pd.read_parquet(parquet_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
 
-    if csv_path.exists():
-        log("io.read_csv", path=str(csv_path))
-        return pd.read_csv(csv_path)
+    if ext == ".parquet":
+        log("io.read_parquet", path=str(path))
+        return pd.read_parquet(path)
 
-    raise FileNotFoundError(f"Neither {parquet_path} nor {csv_path} exists.")
+    if ext == ".csv":
+        log("io.read_csv", path=str(path))
+        return pd.read_csv(path)
+
+    raise ValueError(f"Unsupported file extension '{ext}'. Use .parquet or .csv.")
+
+
+def write_list(items: List[str], path: str) -> None:
+    """Write a list of strings to a text file, one per line."""
+    with open(path, "w") as f:
+        for item in items:
+            f.write(f"{item}\n")
+
+
+def ensure_dir(path: str) -> str:
+    """Ensure a directory exists; return the path."""
+    os.makedirs(path, exist_ok=True)
+    return path

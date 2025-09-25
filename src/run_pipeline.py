@@ -2,7 +2,7 @@ import argparse
 
 from .config import PREPROCESS_DIR
 from .data_tracking import load_preprocess_metadata, raw_data_has_changed
-from .feature_selection import run_feature_selection
+from .feature_selection_util import run_feature_selection
 from .model_training import train_models
 from .preprocess import preprocess
 

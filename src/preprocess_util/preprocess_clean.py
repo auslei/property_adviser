@@ -15,8 +15,9 @@ __all__ = ["clean_data"]  # only the pipeline is public
 # ----------------------------
 # Internal helpers (private)
 # ----------------------------
+
 def _normalize_text(value: str, replace_map: Dict[str, str]) -> str:
-    """ASCII-normalize text, applying configured character replacements first."""
+    """ASCII-normalise text, applying configured character replacements first."""
     for src, dst in replace_map.items():
         value = value.replace(src, dst).strip().upper().replace("  ", " ")
     value = unicodedata.normalize("NFKD", value)
@@ -106,6 +107,78 @@ def _bucket_categorical(s: pd.Series, min_count: int) -> pd.Series:
     allowed = set(counts[counts >= min_count].index)
     return s.apply(lambda v: v if v in allowed or v == "Unknown" else "Other")
 
+
+def _load_data(data_path: str, pattern: str, encoding: str) -> pd.DataFrame:
+    """Load and vertically concat all CSVs under a base path matching a pattern."""
+    base = Path(data_path)
+    csv_paths = sorted(base.glob(pattern))
+    if not csv_paths:
+        msg = f"No CSV files found in {base} matching pattern '{pattern}'."
+        error("io.read_csv", error=msg, base=str(base), pattern=pattern)
+        raise FileNotFoundError(msg)
+
+    frames: List[pd.DataFrame] = []
+    for p in csv_paths:
+        try:
+            df = pd.read_csv(p, encoding=encoding)
+            log("io.read_csv", file=str(p), rows=int(df.shape[0]), cols=int(df.shape[1]))
+        except ValueError as ve:
+            warn("io.read_csv", file=str(p), reason="usecols_mismatch", error=str(ve), fallback="read_all_cols")
+            df = pd.read_csv(p, encoding=encoding)
+            log("io.read_csv", file=str(p), rows=int(df.shape[0]), cols=int(df.shape[1]), mode="fallback_all_cols")
+
+        df["__source_file"] = p.name
+        frames.append(df)
+
+    combined = pd.concat(frames, ignore_index=True)
+    log("io.concat", files=len(frames), rows=int(combined.shape[0]), cols=int(combined.shape[1]))
+    return combined
+
+
+def simplify_property_type(raw: Any, cfg: Dict[str, Any]) -> str:
+    """Standardise property type (e.g. Unit vs House) from raw string."""
+    unknown = cfg.get("unknown_value", "")
+    if not isinstance(raw, str):
+        return unknown
+
+    for k in cfg.get("unit_keywords", UNIT_KEYWORDS):
+        if k in raw:
+            return cfg.get("unit_label", "Unit")
+    for k in cfg.get("house_keywords", HOUSE_KEYWORDS):
+        if k in raw:
+            return cfg.get("house_label", "House")
+    return unknown
+
+
+# ---------- drop audit helpers ----------
+_DROPPED_CHUNKS: List[pd.DataFrame] = []
+
+def _filter_with_reason(df: pd.DataFrame, mask: pd.Series, reason: str) -> pd.DataFrame:
+    """Keep rows where mask is True; record dropped rows with a reason."""
+    if mask.dtype != bool or mask.shape[0] != df.shape[0]:
+        raise ValueError("Mask must be boolean and aligned with dataframe")
+    dropped = df.loc[~mask].copy()
+    if not dropped.empty:
+        dropped["_drop_reason"] = reason
+        _DROPPED_CHUNKS.append(dropped)
+    return df.loc[mask].copy()
+
+
+def _emit_drop_audit_if_configured(cleaning_cfg: Dict[str, Any]) -> None:
+    """Optionally write a parquet audit of dropped rows if a path is configured."""
+    if not _DROPPED_CHUNKS:
+        return
+    path_key = "dropped_rows_path"
+    if path_key in cleaning_cfg:
+        out = Path(cleaning_cfg[path_key])
+        audit = pd.concat(_DROPPED_CHUNKS, ignore_index=True)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        audit.to_parquet(out, index=False)
+        log("rows.audit_written", path=str(out), rows=int(audit.shape[0]))
+    else:
+        warn("rows.audit_skipped", reason="no_dropped_rows_path_in_config", dropped_chunks=len(_DROPPED_CHUNKS))
+
+
 # ----------------------------
 # Public pipeline
 # ----------------------------
@@ -116,47 +189,22 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
       2) Rename columns
       3) Drop mostly-empty columns
       4) Apply category mappings
-      5) Coerce numerics, normalize strings/dates
-      6) Drop rows missing required target/fields
-      7) Fill NaNs and bucket high-cardinality categoricals
+      5) Coerce numerics, normalise strings/dates
+      6) Fill NaNs (non-target) BEFORE filtering required columns
+      7) Filter rows missing required fields; filter target last
+      8) Bucket high-cardinality categoricals (if configured)
     """
     # --- config (strict) ---
     ds = config["data_source"]
-    base = Path(ds["path"])
-    pattern = ds["pattern"]
-    encoding = ds["encoding"]
-    include_cols = ds.get("include_columns")
-    filter_cols = ds.get("filter_columns", False)
-
     cleaning = config["cleaning"]
     min_non_null = float(cleaning["min_non_null_fraction"])
     special_to_ascii: Dict[str, str] = cleaning["special_to_ascii"]
 
-    # --- read CSVs ---
-    csv_paths = sorted(base.glob(pattern))
-    if not csv_paths:
-        msg = f"No CSV files found in {base} matching pattern '{pattern}'."
-        error("io.read_csv", error=msg, base=str(base), pattern=pattern)
-        raise FileNotFoundError(msg)
+    # Required lists (no inline defaults)
+    if "numeric_candidates" not in cleaning:
+        raise KeyError("Missing 'numeric_candidates' in cleaning config")
 
-    frames: List[pd.DataFrame] = []
-    for p in csv_paths:
-        try:
-            usecols = include_cols if (filter_cols and include_cols) else None
-            df = pd.read_csv(p, encoding=encoding, usecols=usecols)
-            log("io.read_csv", file=str(p), rows=int(df.shape[0]), cols=int(df.shape[1]))
-        except ValueError as ve:
-            warn("io.read_csv", file=str(p), reason="usecols_mismatch", error=str(ve), fallback="read_all_cols")
-            df = pd.read_csv(p, encoding=encoding)
-            log("io.read_csv", file=str(p), rows=int(df.shape[0]), cols=int(df.shape[1]), mode="fallback_all_cols")
-        if filter_cols and include_cols:
-            df = _filter_columns(df, include_cols)
-
-        df["__source_file"] = p.name
-        frames.append(df)
-
-    combined = pd.concat(frames, ignore_index=True)
-    log("io.concat", files=len(frames), rows=int(combined.shape[0]), cols=int(combined.shape[1]))
+    combined = _load_data(ds["path"], ds["pattern"], ds["encoding"])
 
     # --- rename columns to camelCase (unique) ---
     used: Dict[str, int] = {}
@@ -169,7 +217,7 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
     combined = _drop_mostly_empty_columns(combined, min_non_null)
     log("columns.drop_mostly_empty", threshold=min_non_null, cols_in=before_cols, cols_out=int(combined.shape[1]))
 
-    # --- category standardisation + consolidation ---
+    # --- category standardisation + consolidation (if configured) ---
     if cleaning.get("standardise"):
         combined = _apply_category_mappings(combined, cleaning["standardise"], special_to_ascii)
         log("categorical.standardise", columns=list(cleaning["standardise"].keys()))
@@ -178,53 +226,40 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
         combined = _apply_category_mappings(combined, cleaning["category_mappings"], special_to_ascii)
         log("categorical.map", columns=list(cleaning["category_mappings"].keys()))
 
-    # --- numeric coercion (from config list or sensible defaults) ---
-    numeric_candidates = cleaning.get(
-        "numeric_candidates",
-        ["bed", "bath", "car", "landSizeM2", "floorSizeM2", "yearBuilt", "salePrice", "postcode"],
-    )
+    # --- numeric coercion (strictly from config-provided list) ---
+    numeric_candidates: List[str] = list(cleaning["numeric_candidates"])
     for col in numeric_candidates:
         if col in combined.columns:
             combined[col] = _to_numeric(combined[col])
     log("numeric.coerce", candidates=numeric_candidates)
 
-    # --- replace non-ascii characters ---
+    # --- replace non-ascii characters on selected columns (if configured) ---
     if cleaning.get("normalise_text_columns"):
         for col in cleaning["normalise_text_columns"]:
-            if col in df.columns:
-                df[col] = df[col].apply(
+            if col in combined.columns:
+                combined[col] = combined[col].apply(
                     lambda x: _normalize_text(str(x), special_to_ascii) if pd.notna(x) else x
                 )
         log("normalise_text_columns", columns=list(cleaning["normalise_text_columns"]))
 
-    # --- date normalization ---
+    # --- date normalisation ---
     if "saleDate" in combined.columns:
+        before = len(combined)
         combined["saleDate"] = pd.to_datetime(combined["saleDate"], errors="coerce")
-        log("dates.sale_parsed", cols=["saleDate"])
+        log("dates.sale_parsed", cols=["saleDate"], rows_in=before, rows_out=len(combined))
 
-    # --- string normalization ---
+    # --- string normalisation across object/string columns ---
     for col in combined.select_dtypes(include=["object", "string"]).columns:
         combined[col] = _normalize_strings(combined[col])
     log("strings.normalised")
 
-    # --- filter rows based on required columns / primary target ---
-    required_cols = cleaning.get("required_columns", [])
-    for col in required_cols:
-        if col in combined.columns:
-            before = int(combined.shape[0])
-            combined = combined[combined[col].notna()].copy()
-            log("rows.filter_required", column=col, rows_in=before, rows_out=int(combined.shape[0]))
-
+    # -----------------------------
+    # FILL NaNs BEFORE required-filter
+    # -----------------------------
     target = cleaning.get("primary_target", "salePrice")
-    if target in combined.columns:
-        before = int(combined.shape[0])
-        combined = combined[combined[target].notna()].copy()
-        log("rows.filter_target", column=target, rows_in=before, rows_out=int(combined.shape[0]))
-
-    # --- fill NaNs ---
     numeric_cols = combined.select_dtypes(include=["number"]).columns.tolist()
     for c in numeric_cols:
-        if c != target:
+        if c != target:  # do not impute the target here
             combined[c] = combined[c].fillna(combined[c].median())
 
     categorical_cols = combined.select_dtypes(include=["object"]).columns.tolist()
@@ -232,11 +267,29 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
         combined[c] = combined[c].fillna("Unknown")
     log("na.fill", numeric_cols=numeric_cols, categorical_cols=categorical_cols)
 
-    # --- bucket high-cardinality categoricals ---
-    rules = cleaning.get("bucketing_rules", {"agency": 20, "landUse": 15, "propertyType": 15})
-    for c, threshold in rules.items():
-        if c in combined.columns:
-            combined[c] = _bucket_categorical(combined[c], int(threshold))
-    log("categorical.bucket", rules=rules)
+    # --- filter rows based on required columns (AFTER fill) ---
+    required_cols = cleaning.get("required_columns", [])
+    for col in required_cols:
+        if col in combined.columns and col != target:
+            before = int(combined.shape[0])
+            combined = _filter_with_reason(combined, combined[col].notna(), f"{col}:required")
+            log("rows.filter_required", column=col, rows_in=before, rows_out=int(combined.shape[0]))
+
+    # --- finally filter target (cannot train without it) ---
+    if target in combined.columns:
+        before = int(combined.shape[0])
+        combined = _filter_with_reason(combined, combined[target].notna(), f"{target}:present")
+        log("rows.filter_target", column=target, rows_in=before, rows_out=int(combined.shape[0]))
+
+    # --- bucket high-cardinality categoricals (only if configured) ---
+    if cleaning.get("bucketing_rules"):
+        rules: Dict[str, int] = dict(cleaning["bucketing_rules"])
+        for c, threshold in rules.items():
+            if c in combined.columns:
+                combined[c] = _bucket_categorical(combined[c], int(threshold))
+        log("categorical.bucket", rules=rules)
+
+    # --- emit drop audit if requested ---
+    _emit_drop_audit_if_configured(cleaning)
 
     return combined

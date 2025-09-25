@@ -1,14 +1,61 @@
 # Property Analysis Agents Guide
 
 ## Overview
-- End-to-end pipeline for forecasting next-year property prices using suburb-level CSV data.
-- Core stages live under `src/`: preprocessing, feature selection, and model training with persisted parquet artefacts.
-- Streamlit UI (`app/app.py`) wraps the trained artefacts to offer interactive predictions and dataset exploration.
+- End-to-end pipeline for forecasting next-year property prices using suburb-level CSV data. 
+- Core stages live under `src/`: preprocessing, feature selection, model selection and training, and model prediction with persisted parquet artefacts.
+- Streamlit UI (`app/app.py`): offering access to the preprocessing, feature selection, model selection and training, and model prediction
+
+## Development Guideline:
+- Each of the 1. preprocessing, 2. feature selection, 3. model selection and 4. model prediction should be able to run independently. 
+- Common functions should be separated by functionality and stored in modules under src/common
+- Source code should not be too large, split the code into functional components if required. (For example, preprocessing is split into clean, derive, and preprocessing main)
+- In streamlit app:
+   - All calculations that are not part of visualisation should be part of function in each of the 4 modules.
+- Ensure code is concise and simple to understand, do not overengineer.
+- If configration is required, expect to be in the config file, do not create inline default values.
+
 
 ## Environment Setup
 - Create a virtual environment (e.g. `python -m venv .venv && source .venv/bin/activate`).
 - Install dependencies from `requirements.txt` (`pip install -r requirements.txt`).
 - Project expects local CSV files in `data/`; no remote downloads occur.
+
+## Functionality:
+1. Preprocess Mododule:
+   - objectives:
+      - cleaning: read raw file, clean column names, remove special characters, and drop mostly null columns
+      - derivation: create new columns based on derivation logic, such as bucket categories, calculate mean values, etc.
+   - location: under src, and name start with preprocess
+   - config: conifig/prprocessing.yml
+2. Feature selection:
+   - objective:
+      - given a target varible, find most useful features for modelling
+      - store selected features under "data_training" directory 
+      - generate training, datasets based on selected variables under "data_training" directory
+   - location: under src, and name starts with feature_selection
+   - config: config/features
+3. Model training and selection:
+   - 
+
+- Streamlit UI (`app/app.py`) wraps the trained artefacts to offer interactive predictions and dataset exploration.
+   0. app.py shows an overview of the project and data:
+      - This include several filters: Suburb, saleYear, propertyType, Street Contains
+      - A highest median priced street. 
+      - A data table showing filtered data.
+   1. pages/1_Data_Preprocessing.py: a data processing page, allowing user to:
+      - regenerate all data files 
+      - filter and profile data, there are two tabs
+         - tab1 (general): data table showing filtered result
+         - tab2 (profile): showing min, max, median, average of numerical columns; frequency count of the categorical columns
+   2. 2_Feature_Engineering.py: feature selection screen:
+      - allow user to specify a target variable from list of available columns (numerical)
+      - shows the list of variables (both numerical and categorical) ranked by their correlation to the target variable
+      - a list of features that are automatically selected, populated in selected features 
+      - 2 buttons:
+         - auto
+
+ 
+
 
 ## Data Inputs
 - Place raw CSV files in `data/` (matched via `*.csv`). UTF-8 with BOM is accepted.

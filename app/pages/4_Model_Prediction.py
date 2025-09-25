@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-from utils import load_model_resources
+from src.common.app_utils import load_model_resources
 from src.model_prediction import predict_property_price, predict_with_confidence_interval, predict_property_prices_batch
 
 

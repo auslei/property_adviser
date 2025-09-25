@@ -1,21 +1,9 @@
-target: priceFactor
-baseline:
-  derive_factor: false
-  base_target: salePrice
-  baseline_column: baselineMedian
-  transactions_column: baselineTransactions
-correlation_threshold: 0.9
+input_file: data_preprocess/derived.parquet
+output_dir: data_training/
+target: salePrice
+correlation_threshold: 0.05     # note: MI is [0..1]; η is [0..1]; Pearson is [0..1]
 exclude_columns:
-- streetAddress
-- sourceFile
-- openInRpdata
-force_keep:
-  - street
-  - suburb
-  - propertyType
-  - bed
-  - bath
-  - car
-  - comparableCount
-  - saleYear
-  - saleMonth
+  - streetAddress
+  - sourceFile
+  - openInRpdata
+mi_random_state: 7

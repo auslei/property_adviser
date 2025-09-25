@@ -8,9 +8,6 @@ import re
 from src.common.app_logging import log, warn
 from src.common.runner import run_step
 
-UNIT_KEYWORDS = ("unit", "flat", "apartment", "villa", "studio", "duplex")
-HOUSE_KEYWORDS = ("house", "detached", "dwelling", "residence", "townhouse")
-
 
 # --- Feature Extraction ---
 def extract_street(address: str, cfg: Dict[str, Any]) -> str:
@@ -18,25 +15,60 @@ def extract_street(address: str, cfg: Dict[str, Any]) -> str:
     unknown = cfg.get("unknown_value", "Unknown")
     if not isinstance(address, str):
         return unknown
-    # Remove unit/house number prefixes
-    cleaned = re.sub(r"^[0-9]+[A-Z]?/[0-9]+\s+", "", address)
-    cleaned = re.sub(r"^[0-9]+[A-Z]?\s+", "", address).strip()
-
-    return cleaned.title() if cleaned else unknown
-
-def simplify_property_type(raw: Any, cfg: Dict[str, Any]) -> str:
-    """Standardise property type (e.g. Unit vs House) from raw string."""
-    unknown = cfg.get("unknown_value", "")
-    if not isinstance(raw, str):
-        return unknown
-
-    for k in cfg.get("unit_keywords", UNIT_KEYWORDS):
-        if k in raw:
-            return cfg.get("unit_label", "Unit")
-    for k in cfg.get("house_keywords", HOUSE_KEYWORDS):
-        if k in raw:
-            return cfg.get("house_label", "House")
-    return unknown
+    
+    # Work with a copy of the address
+    addr = address.strip()
+    
+    # Step 1: Handle addresses with commas (take the part after the last comma)
+    if ',' in addr:
+        addr_parts = addr.split(',')
+        addr = addr_parts[-1].strip()
+    
+    # Step 2: Special handling for unit types followed by slash-separated numbers
+    # This specifically targets formats like "Flat 12/34", "Suite 101/500", etc.
+    unit_slash_pattern = r"^(unit|flat|apt|apartment|lot|ste|suite|shop|villa|studio|duplex)\s*\d+[a-zA-Z]?[/]\d+[a-zA-Z]?\s*"
+    addr = re.sub(unit_slash_pattern, "", addr, flags=re.IGNORECASE)
+    
+    # Step 3: Remove other common unit/house prefixes with optional punctuation
+    unit_patterns = [
+        r"^(unit|flat|apt|apartment|lot|ste|suite|shop|villa|studio|duplex)\s*[0-9a-z]+\s*[-]?\s*",
+        r"^(unit|flat|apt|apartment|lot|ste|suite|shop|villa|studio|duplex)\s*[0-9a-z]+\s*[,]?\s*",
+    ]
+    for pattern in unit_patterns:
+        addr = re.sub(pattern, "", addr, flags=re.IGNORECASE)
+    
+    # Step 4: Remove numeric parts at the beginning, including complex formats
+    # Handle various number formats: simple, range, unit/house
+    numeric_patterns = [
+        # Number range with hyphen (724-728 or 12-14A)
+        r"^\d+[a-zA-Z]?[-]\d+[a-zA-Z]?\s+",
+        # Unit/house number format with slash (45A/67 or 101/500)
+        r"^\d+[a-zA-Z]?[/]\d+[a-zA-Z]?\s+",
+        # Complex format with both hyphen and slash (12-14A/100)
+        r"^\d+[a-zA-Z]?[-]\d+[a-zA-Z]?[/]\d+\s+",
+        # Simple numeric prefixes (123 or 123a)
+        r"^\d+[a-zA-Z]?\s+",
+        # Any remaining numeric parts
+        r"^\d+\s+",
+    ]
+    
+    # Apply numeric patterns multiple times to handle nested cases
+    # We'll do up to 3 passes to avoid infinite loops
+    for _ in range(3):
+        original = addr
+        for pattern in numeric_patterns:
+            addr = re.sub(pattern, "", addr)
+        # If no changes after one full pass, we're done
+        if addr == original:
+            break
+    
+    # Step 5: Remove any remaining hyphens or other separators at the beginning
+    addr = re.sub(r"^[-]\s+", "", addr)
+    
+    # Step 6: Final cleanup
+    addr = addr.strip().rstrip(',')
+    
+    return addr.title() if addr else unknown
 
 # --- Derived Features ---
 
@@ -118,22 +150,6 @@ def derive_features(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
             df = run_step("derive.street", _street, df)
             continue
 
-        if name == "propertyType":
-            cfg = spec.get("config", {"unknown_value": ""})
-
-            def _ptype(dfin):
-                if "propertyType" not in dfin.columns:
-                    warn("derive.property_type", reason="missing_column", column="propertyType")
-                    return dfin
-                before = dfin.shape[0]
-                dfin["propertyType"] = dfin["propertyType"].apply(lambda x: simplify_property_type(x, cfg))
-                if cfg["unknown_value"]:
-                    dfin = dfin[dfin["propertyType"] != cfg["unknown_value"]].copy()
-                log("derive.property_type", rows_in=before, rows_out=dfin.shape[0])
-                return dfin
-
-            df = run_step("derive.property_type", _ptype, df)
-            continue
 
         if all(k in spec for k in ("group_by", "target", "aggregate", "output")):
             df = run_step("derive.group_aggregate", apply_group_aggregate, df, spec=spec)

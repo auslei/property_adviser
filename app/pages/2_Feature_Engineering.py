@@ -9,9 +9,9 @@ from pathlib import Path
 import json
 import shutil
 
-from utils import load_training_sets
+from src.common.app_utils import load_training_sets
 from src.config import FEATURE_ENGINEERING_CONFIG_PATH, PREPROCESS_DIR, TRAINING_DIR
-from src.feature_selection import run_feature_selection
+from src.feature_selection_util import run_feature_selection
 
 
 # Load derived data

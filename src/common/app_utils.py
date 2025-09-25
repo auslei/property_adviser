@@ -8,34 +8,26 @@ import pandas as pd
 import streamlit as st
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# Set PROJECT_ROOT to the repository root directory
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Go up two levels from src/common/
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-try:
-    from src.config import (
-        DATA_DIR,
-        FEATURE_ENGINEERING_CONFIG_PATH,
-        MODEL_CONFIG_PATH,
-        MODELS_DIR,
-        PREPROCESS_CONFIG_PATH,
-        PREPROCESS_DIR,
-        STREET_COORDS_PATH,
-        TRAINING_DIR,
-    )
-except ImportError:
-    # Fallback when an older src.config is imported (e.g. cached Streamlit session).
-    DATA_DIR = PROJECT_ROOT / "data"
-    PREPROCESS_DIR = PROJECT_ROOT / "data_preprocess"
-    TRAINING_DIR = PROJECT_ROOT / "data_training"
-    MODELS_DIR = PROJECT_ROOT / "models"
-    CONFIG_DIR = PROJECT_ROOT / "config"
-    PREPROCESS_CONFIG_PATH = CONFIG_DIR / "preprocessing.yml"
-    FEATURE_ENGINEERING_CONFIG_PATH = CONFIG_DIR / "features.yml"
-    MODEL_CONFIG_PATH = CONFIG_DIR / "model.yml"
-    STREET_COORDS_PATH = CONFIG_DIR / "street_coordinates.csv"
 
-from src.configuration import load_yaml
+# Fallback when an older src.config is imported (e.g. cached Streamlit session).
+DATA_DIR = PROJECT_ROOT / "data"
+PREPROCESS_DIR = PROJECT_ROOT / "data_preprocess"
+TRAINING_DIR = PROJECT_ROOT / "data_training"
+MODELS_DIR = PROJECT_ROOT / "models"
+CONFIG_DIR = PROJECT_ROOT / "config"
+PREPROCESS_CONFIG_PATH = CONFIG_DIR / "preprocessing.yml"
+FEATURE_ENGINEERING_CONFIG_PATH = CONFIG_DIR / "features.yml"
+MODEL_CONFIG_PATH = CONFIG_DIR / "model.yml"
+STREET_COORDS_PATH = CONFIG_DIR / "street_coordinates.csv"
+
+
+from src.common.config import load_config
 
 
 @st.cache_resource
@@ -74,16 +66,14 @@ def load_median_artifacts():
     # The median is now calculated directly in preprocessing
     return None, None, {}
 
-
 @st.cache_data
 def load_cleaned_data() -> pd.DataFrame:
-    data_path = PREPROCESS_DIR / "cleaned.parquet"
+    data_path = PREPROCESS_DIR / "derived.parquet"
     if not data_path.exists():
         raise FileNotFoundError(
-            "Preprocessed data missing. Run preprocessing before viewing analytics."
+            f"Preprocessed data missing ({data_path}). Run preprocessing before viewing analytics."
         )
     return pd.read_parquet(data_path)
-
 
 @st.cache_data
 def load_preprocess_metadata() -> Dict[str, Any]:
@@ -157,7 +147,7 @@ def load_street_coordinates() -> pd.DataFrame:
 
 
 def read_yaml_config(path: Path) -> Dict[str, Any]:
-    return load_yaml(path)
+    return load_config(path)
 
 
 def write_yaml_config(path: Path, data: Dict[str, Any]) -> None:
