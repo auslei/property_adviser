@@ -36,7 +36,6 @@ except ImportError:
     STREET_COORDS_PATH = CONFIG_DIR / "street_coordinates.csv"
 
 from src.configuration import load_yaml
-from src.suburb_median import load_baseline_median_history
 
 
 @st.cache_resource
@@ -70,10 +69,10 @@ def load_median_artifacts():
     has been eliminated. Returns a compatible tuple interface:
     (history, None, {}) where None represents the eliminated model.
     """
-    history = load_baseline_median_history()
-    # Return compatible interface: (history, model, metadata)
-    # Since we've eliminated the model, we return None for model and empty dict for metadata
-    return history, None, {}
+    # Since we removed the suburb median module, we just return
+    # a compatible interface with None values
+    # The median is now calculated directly in preprocessing
+    return None, None, {}
 
 
 @st.cache_data

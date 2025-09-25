@@ -3,6 +3,10 @@
 ## Overview
 The Feature Engineering page (`app/pages/2_Feature_Engineering.py`) provides a comprehensive and user-friendly approach to feature engineering for property price prediction.
 
+## Architectural Principles
+1. **Module Responsibility**: All complex calculations should be done in corresponding modules, not in the Streamlit app. Calculations should only be performed in the Streamlit app if they are specifically for charting and simple.
+2. **Data Derivation**: All data derivation and preprocessing should be done in preprocessing steps, not in other modules. This ensures derived features like medians and price factors are precomputed and available in the derived dataset.
+
 ## Current Capabilities:
 
 ### 1. **Comprehensive Feature Analysis**

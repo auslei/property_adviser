@@ -1,23 +1,11 @@
-# Property Analyst - Final Implementation Checkpoint
+# Final Checkpoint Summary
 
-## Current Status Summary
-All four phases of the Property Analyst application have been successfully implemented and integrated:
+## Overview
+This document provides a comprehensive summary of the final checkpoint of the Property Analyst application, encompassing all completed features and implementation details.
 
-### ✅ Phase 1: Preprocessing (Data Preprocessing)
-- Clean, standardize and derive additional data for modeling
-- Status: Fully implemented with app page (pages/1_Data_Preprocessing.py)
-
-### ✅ Phase 2: Feature Engineering (Feature Engineering)  
-- Understand features and automatically select features for prediction
-- Status: Fully implemented with enhanced app page (pages/2_Feature_Engineering.py)
-
-### ✅ Phase 3: Model Selection (Model Selection)
-- Find the best model for predicting property prices based on key features
-- Status: Fully implemented with new app page (pages/3_Model_Selection.py)
-
-### ✅ Phase 4: Model Prediction (Model Prediction)
-- Predict property prices using selected model
-- Status: Fully implemented with new app page (pages/4_Model_Prediction.py)
+## Architectural Principles
+1. **Module Responsibility**: All complex calculations should be done in corresponding modules, not in the Streamlit app. Calculations should only be performed in the Streamlit app if they are specifically for charting and simple.
+2. **Data Derivation**: All data derivation and preprocessing should be done in preprocessing steps, not in other modules. This ensures derived features like medians and price factors are precomputed and available in the derived dataset.
 
 ## Key Features Implemented
 

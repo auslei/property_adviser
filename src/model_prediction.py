@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 
 from .config import MODELS_DIR, TRAINING_DIR
-from .model_training import build_preprocessor
 
 
 def load_trained_model() -> tuple:
@@ -28,6 +27,36 @@ def load_trained_model() -> tuple:
     return model, metadata
 
 
+def _prepare_prediction_data(
+    properties: List[Dict[str, Any]], metadata: Dict[str, Any]
+) -> pd.DataFrame:
+    """Prepares a DataFrame for prediction from a list of property dictionaries."""
+    input_data = pd.DataFrame(properties)
+
+    # Ensure we have the right columns based on training metadata
+    selected_features = metadata.get("selected_features", [])
+
+    # Add missing columns with default values if needed
+    for feature in selected_features:
+        if feature not in input_data.columns:
+            if feature in ["saleYear", "saleMonth"]:
+                # If we have yearmonth, we can derive these
+                if "yearmonth" in input_data.columns:
+                    input_data["saleYear"] = input_data["yearmonth"] // 100
+                    input_data["saleMonth"] = input_data["yearmonth"] % 100
+                else:
+                    input_data[feature] = 0  # Default value
+            elif feature in metadata.get("numeric_features", []):
+                input_data[feature] = 0  # Default numeric value
+            elif feature in metadata.get("categorical_features", []):
+                input_data[feature] = "Unknown"  # Default categorical value
+            else:
+                input_data[feature] = 0  # Default fallback
+
+    # Filter to only include features used in training
+    return input_data[selected_features]
+
+
 def predict_property_price(
     yearmonth: int,
     bed: int,
@@ -44,35 +73,17 @@ def predict_property_price(
     if model is None or metadata is None:
         model, metadata = load_trained_model()
     
-    # Create input dataframe
-    input_data = pd.DataFrame({
-        'yearmonth': [yearmonth],
-        'bed': [bed],
-        'bath': [bath],
-        'car': [car], 
-        'propertyType': [property_type],
-        'street': [street]
-    })
-    
-    # Ensure we have the right columns based on training metadata
-    selected_features = metadata.get('selected_features', [])
-    
-    # Add missing columns with default values if needed
-    for feature in selected_features:
-        if feature not in input_data.columns:
-            if feature in ['saleYear', 'saleMonth']:
-                # If we have yearmonth, we can derive these
-                input_data['saleYear'] = yearmonth // 100
-                input_data['saleMonth'] = yearmonth % 100
-            elif feature in metadata.get('numeric_features', []):
-                input_data[feature] = 0  # Default numeric value
-            elif feature in metadata.get('categorical_features', []):
-                input_data[feature] = 'Unknown'  # Default categorical value
-            else:
-                input_data[feature] = 0  # Default fallback
-    
-    # Filter to only include features used in training
-    input_data = input_data[selected_features]
+    properties = [
+        {
+            "yearmonth": yearmonth,
+            "bed": bed,
+            "bath": bath,
+            "car": car,
+            "propertyType": property_type,
+            "street": street,
+        }
+    ]
+    input_data = _prepare_prediction_data(properties, metadata)
     
     # Make prediction
     prediction = model.predict(input_data)
@@ -89,31 +100,7 @@ def predict_property_prices_batch(
     """
     model, metadata = load_trained_model()
     
-    # Create input dataframe from list of property dictionaries
-    input_data = pd.DataFrame(properties)
-    
-    # Ensure we have the right columns based on training metadata
-    selected_features = metadata.get('selected_features', [])
-    
-    # Add missing columns with default values if needed
-    for feature in selected_features:
-        if feature not in input_data.columns:
-            if feature in ['saleYear', 'saleMonth']:
-                # If we have yearmonth, we can derive these
-                if 'yearmonth' in input_data.columns:
-                    input_data['saleYear'] = input_data['yearmonth'] // 100
-                    input_data['saleMonth'] = input_data['yearmonth'] % 100
-                else:
-                    input_data[feature] = 0  # Default value
-            elif feature in metadata.get('numeric_features', []):
-                input_data[feature] = input_data.get(feature, 0)  # Default numeric value
-            elif feature in metadata.get('categorical_features', []):
-                input_data[feature] = input_data.get(feature, 'Unknown')  # Default categorical value
-            else:
-                input_data[feature] = input_data.get(feature, 0)  # Default fallback
-    
-    # Filter to only include features used in training
-    input_data = input_data[selected_features]
+    input_data = _prepare_prediction_data(properties, metadata)
     
     # Make predictions
     predictions = model.predict(input_data)
@@ -132,11 +119,13 @@ def predict_with_confidence_interval(
     confidence_level: float = 0.95
 ) -> Dict[str, float]:
     """
-    Predict property price with confidence interval using bootstrap or model uncertainty
+    Predict property price with confidence interval using model uncertainty.
+
+    This is a simplified approach that uses the Root Mean Squared Error (RMSE)
+    from the model's validation set as a measure of uncertainty. A more robust
+    approach would involve techniques like bootstrapping or using models that
+    natively provide prediction intervals.
     """
-    # For now, we'll implement a simple approach using residuals from validation
-    # A more sophisticated approach would be to implement proper uncertainty quantification
-    
     model, metadata = load_trained_model()
     
     # Load validation results to estimate prediction uncertainty

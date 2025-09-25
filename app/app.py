@@ -44,6 +44,15 @@ if not suburb_values:
     st.warning("No suburbs available in the cleaned dataset.")
     st.stop()
 
+# --- ADD THIS CODE SNIPPET ---
+# Ensure the price column is a numeric type before any calculations
+if pd.api.types.is_object_dtype(cleaned[price_column]):
+    # Clean the column: remove commas and dollar signs
+    cleaned[price_column] = cleaned[price_column].astype(str).str.replace('[\$,]', '', regex=True)
+    # Convert to numeric, coercing any errors to NaN
+    cleaned[price_column] = pd.to_numeric(cleaned[price_column], errors='coerce')
+# --- END OF SNIPPET ---
+
 selected_suburb_label = st.selectbox(
     "Suburb",
     options=suburb_values,

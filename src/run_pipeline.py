@@ -5,10 +5,16 @@ from .data_tracking import load_preprocess_metadata, raw_data_has_changed
 from .feature_selection import run_feature_selection
 from .model_training import train_models
 from .preprocess import preprocess
-from .suburb_median import prepare_suburb_median_artifacts
+
 
 
 def main(force: bool = False) -> None:
+    """
+    Runs the entire data processing and model training pipeline.
+
+    Args:
+        force: If True, forces preprocessing even if raw data has not changed.
+    """
     metadata = load_preprocess_metadata()
     need_preprocess = force or raw_data_has_changed(metadata)
 
@@ -24,13 +30,6 @@ def main(force: bool = False) -> None:
             print("Preprocessed dataset missing. Running preprocessing now.")
             preprocess_path = preprocess()
             print(f"Preprocessed data stored at {preprocess_path}.")
-
-    print("Preparing suburb median baselines...")
-    median_summary = prepare_suburb_median_artifacts(force=need_preprocess)
-    print(
-        "Median history prepared with "
-        f"{median_summary['history_rows']} rows across {len(median_summary['suburbs'])} suburbs."
-    )
 
     print("Running feature selection...")
     feature_info = run_feature_selection()

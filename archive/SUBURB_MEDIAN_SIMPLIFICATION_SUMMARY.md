@@ -1,7 +1,11 @@
-# Simplified Suburb Median Implementation - Change Summary
+# Suburb Median Simplification Summary
 
 ## Overview
-The `suburb_median.py` module has been significantly simplified to eliminate the unnecessary machine learning forecasting model and move toward a more straightforward preprocessing approach.
+This document captures the implementation summary for the suburb median simplification project.
+
+## Architectural Principles
+1. **Module Responsibility**: All complex calculations should be done in corresponding modules, not in the Streamlit app. Calculations should only be performed in the Streamlit app if they are specifically for charting and simple.
+2. **Data Derivation**: All data derivation and preprocessing should be done in preprocessing steps, not in other modules. This ensures derived features like medians and price factors are precomputed and available in the derived dataset.
 
 ## Changes Made
 

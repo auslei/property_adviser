@@ -1,4 +1,8 @@
-# Property Analyst - Implementation Summary
+# Implementation Summary
+
+## Architectural Principles
+1. **Module Responsibility**: All complex calculations should be done in corresponding modules, not in the Streamlit app. Calculations should only be performed in the Streamlit app if they are specifically for charting and simple.
+2. **Data Derivation**: All data derivation and preprocessing should be done in preprocessing steps, not in other modules. This ensures derived features like medians and price factors are precomputed and available in the derived dataset.
 
 ## Overview
 The Property Analyst application has been successfully updated to implement your new 4-phase logic structure. Here's a summary of the changes made:

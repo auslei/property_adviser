@@ -3,6 +3,10 @@
 ## Overview
 End-to-end pipeline for forecasting next-year property sale prices from suburb-level CSVs. It standardises and enriches inputs, learns a factor relative to suburb-month medians, trains multiple regressors, and surfaces artefacts in a Streamlit UI for exploration.
 
+## Architectural Principles
+1. **Module Responsibility**: All complex calculations should be done in corresponding modules, not in the Streamlit app. Calculations should only be performed in the Streamlit app if they are specifically for charting and simple.
+2. **Data Derivation**: All data derivation and preprocessing should be done in preprocessing steps, not in other modules. This ensures derived features like medians and price factors are precomputed and available in the derived dataset.
+
 ## Repository Layout
 - `data/` – drop raw suburb-level CSV exports here (inputs).
 - `data_preprocess/` – cleaned dataset (`cleaned.parquet`) and preprocessing metadata (`metadata.json`).

@@ -13,12 +13,10 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.multioutput import MultiOutputRegressor
-from sklearn.linear_model import LinearRegression
+
 
 from .config import MODEL_CONFIG_PATH, MODELS_DIR, RANDOM_STATE, TRAINING_DIR
-from .configuration import load_yaml
-from .suburb_median import GLOBAL_SUBURB_KEY, load_suburb_median_history
+
 
 
 MODEL_FACTORY = {
@@ -143,54 +141,28 @@ def _apply_feature_adjustments(
     return X[selected_features], updated_metadata, info
 
 
-def _prepare_baseline_maps() -> Tuple[Dict[Tuple[object, int, int], float], Dict[Tuple[int, int], float]]:
-    history = load_suburb_median_history()
-    suburb_map = (
-        history[history["suburb"] != GLOBAL_SUBURB_KEY][
-            ["suburb", "saleYear", "saleMonth", "medianPrice"]
-        ]
-        .drop_duplicates(["suburb", "saleYear", "saleMonth"], keep="last")
-        .set_index(["suburb", "saleYear", "saleMonth"])["medianPrice"]
-        .to_dict()
-    )
-    global_map = (
-        history[history["suburb"] == GLOBAL_SUBURB_KEY][
-            ["saleYear", "saleMonth", "medianPrice"]
-        ]
-        .drop_duplicates(["saleYear", "saleMonth"], keep="last")
-        .set_index(["saleYear", "saleMonth"])["medianPrice"]
-        .to_dict()
-    )
-    return suburb_map, global_map
+# def _prepare_baseline_maps() -> Tuple[Dict[Tuple[object, int, int], float], Dict[Tuple[int, int], float]]:
+#     history = load_suburb_median_history()
+#     suburb_map = (
+#         history[history["suburb"] != GLOBAL_SUBURB_KEY][
+#             ["suburb", "saleYear", "saleMonth", "medianPrice"]
+#         ]
+#         .drop_duplicates(["suburb", "saleYear", "saleMonth"], keep="last")
+#         .set_index(["suburb", "saleYear", "saleMonth"])["medianPrice"]
+#         .to_dict()
+#     )
+#     global_map = (
+#         history[history["suburb"] == GLOBAL_SUBURB_KEY][
+#             ["saleYear", "saleMonth", "medianPrice"]
+#         ]
+#         .drop_duplicates(["saleYear", "saleMonth"], keep="last")
+#         .set_index(["saleYear", "saleMonth"])["medianPrice"]
+#         .to_dict()
+#     )
+#     return suburb_map, global_map
 
 
-def _baseline_from_maps(
-    frame: pd.DataFrame,
-    suburb_map: Dict[Tuple[object, int, int], float],
-    global_map: Dict[Tuple[int, int], float],
-) -> pd.Series:
-    required = ["suburb", "saleYear", "saleMonth"]
-    missing = [col for col in required if col not in frame.columns]
-    if missing:
-        raise ValueError(
-            f"Missing baseline lookup columns in feature set: {missing}. Ensure feature selection retained these fields."
-        )
 
-    values = []
-    for suburb, year, month in zip(
-        frame["suburb"], frame["saleYear"], frame["saleMonth"]
-    ):
-        year_int = int(year) if pd.notna(year) else None
-        month_int = int(month) if pd.notna(month) else None
-        if suburb is None or year_int is None or month_int is None:
-            values.append(np.nan)
-            continue
-        primary_key = (suburb, year_int, month_int)
-        baseline = suburb_map.get(primary_key)
-        if baseline is None or (isinstance(baseline, float) and np.isnan(baseline)):
-            baseline = global_map.get((year_int, month_int))
-        values.append(baseline)
-    return pd.Series(values, index=frame.index, dtype=float)
 
 
 def _load_training_data() -> tuple[pd.DataFrame, pd.Series, Dict[str, object]]:
@@ -255,7 +227,16 @@ def build_preprocessor(metadata: Dict[str, object]) -> ColumnTransformer:
 
 def train_timeseries_model(config: Optional[Dict[str, Any]] = None):
     """
-    Train a timeseries model to predict property prices based on yearmonth, bed, bath, car, propertyType and street
+    Trains a model to predict property prices based on time series data.
+
+    This function performs the following steps:
+    1.  Loads the training data and metadata.
+    2.  Filters the features to those relevant for time series prediction.
+    3.  Applies manual feature adjustments from the configuration.
+    4.  Splits the data into training and validation sets.
+    5.  Trains multiple candidate models with hyperparameter tuning.
+    6.  Evaluates the models and selects the best one based on R2 score.
+    7.  Saves the best model and its metrics.
     """
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -287,7 +268,7 @@ def train_timeseries_model(config: Optional[Dict[str, Any]] = None):
     relevant_feature_names = [col for col in X.columns if col in ["yearmonth", "bed", "bath", "car", "propertyType", "street"] or col in metadata.get("selected_features", [])]
     X_filtered = X[relevant_feature_names]
     
-    # Apply feature adjustments
+    # Apply feature adjustments as specified in the configuration
     X_filtered, training_metadata, adjustment_info = _apply_feature_adjustments(
         X_filtered,
         metadata,
@@ -320,6 +301,7 @@ def train_timeseries_model(config: Optional[Dict[str, Any]] = None):
     y_train.to_frame(name=metadata["target"]).to_parquet(y_train_path, index=False)
     y_val.to_frame(name=metadata["target"]).to_parquet(y_val_path, index=False)
 
+    # Train and evaluate each candidate model
     results = []
     best_model_name = None
     best_pipeline = None
@@ -330,6 +312,7 @@ def train_timeseries_model(config: Optional[Dict[str, Any]] = None):
         preprocessor = build_preprocessor(training_metadata)
         pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("model", model)])
 
+        # If a parameter grid is defined, perform a grid search to find the best hyperparameters
         if param_grid:
             search = GridSearchCV(
                 pipeline,
@@ -342,10 +325,12 @@ def train_timeseries_model(config: Optional[Dict[str, Any]] = None):
             tuned_params = search.best_params_
             cv_best_score = float(search.best_score_)
         else:
+            # Otherwise, train the model with its default hyperparameters
             tuned_pipeline = pipeline.fit(X_train, y_train)
             tuned_params = {}
             cv_best_score = None
 
+        # Evaluate the model on the validation set
         predictions = tuned_pipeline.predict(X_val)
         prediction_series = pd.Series(predictions, index=X_val.index, name="prediction")
 
@@ -370,12 +355,14 @@ def train_timeseries_model(config: Optional[Dict[str, Any]] = None):
             }
         )
 
+        # Keep track of the best model based on the R2 score
         if r2 > best_score:
             best_score = r2
             best_model_name = name
             best_pipeline = tuned_pipeline
             best_model_params = tuned_params
 
+    # Save the best model, its metrics, and metadata
     if best_pipeline is None:
         raise RuntimeError("Model training failed to produce a valid pipeline.")
 

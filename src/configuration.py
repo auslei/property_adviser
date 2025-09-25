@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Dict
 
@@ -8,6 +7,17 @@ import yaml
 
 
 def load_yaml(path: Path) -> Dict[str, Any]:
+    """Loads a YAML file and returns its content as a dictionary.
+
+    Args:
+        path: The path to the YAML file.
+
+    Returns:
+        A dictionary with the content of the YAML file.
+
+    Raises:
+        ValueError: If the file does not exist, is not a valid YAML file, or is not a mapping.
+    """
     if not path.exists():
         return {}
     try:
@@ -20,12 +30,3 @@ def load_yaml(path: Path) -> Dict[str, Any]:
     if not isinstance(content, dict):
         raise ValueError(f"Configuration at {path} must be a mapping.")
     return content
-
-
-def load_json(path: Path) -> Dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text())
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Failed to parse JSON at {path}: {exc}") from exc
