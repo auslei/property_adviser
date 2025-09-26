@@ -38,9 +38,6 @@ def main():
           f"Scores: {outcome['scores_path']}  "
           f"ValMonth: {outcome['validation_month']}")
 
-    
-    train_models(cfg)
-
 
 if __name__ == "__main__":
     main()

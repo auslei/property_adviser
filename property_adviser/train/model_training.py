@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, Ridge
@@ -62,6 +62,7 @@ class TrainCfg:
     split: SplitCfg
     models: Dict[str, ModelSpec]
     verbose: bool = False
+    log_target: bool = False
 
 
 # -----------------------------------------------------------------------------
@@ -119,6 +120,26 @@ def _normalise_param_grid(grid: Optional[Dict[str, List[Any]]]) -> Dict[str, Lis
         norm_key = key if key.startswith(("model__", "preprocessor__")) else f"model__{key}"
         params[norm_key] = values
     return params
+
+
+def _prefix_if_log_target(grid: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
+    if not grid:
+        return {}
+    return {
+        key if key.startswith("regressor__") else f"regressor__{key}": values
+        for key, values in grid.items()
+    }
+
+
+def _clean_params(params: Dict[str, Any], log_target: bool) -> Dict[str, Any]:
+    if not params:
+        return {}
+    if not log_target:
+        return dict(params)
+    cleaned: Dict[str, Any] = {}
+    for key, value in params.items():
+        cleaned[key.replace("regressor__", "", 1)] = value
+    return cleaned
 
 
 # -----------------------------------------------------------------------------
@@ -185,6 +206,7 @@ def load_train_cfg(config_path: Optional[Path] = None, overrides: Optional[Dict[
         split=split_cfg,
         models=models,
         verbose=bool(cfg.get("verbose", False)),
+        log_target=bool(cfg.get("log_target", False)),
     )
 
 
@@ -322,6 +344,7 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
             artifacts=str(cfg.paths.artifacts_dir),
             month_column=cfg.split.month_column,
             requested_validation_month=cfg.split.validation_month,
+            log_target=cfg.log_target,
         )
 
         # Load data
@@ -341,6 +364,14 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
 
         # Apply overrides (selected/include/exclude)
         X_effective = _apply_feature_overrides(X, fs)
+
+        if cfg.log_target:
+            mask_valid = y > 0
+            if not mask_valid.all():
+                dropped = int((~mask_valid).sum())
+                X_effective = X_effective.loc[mask_valid].copy()
+                y = y.loc[mask_valid].copy()
+                log("train.log_target_drop_nonpositive", dropped=dropped)
 
         # Choose validation month and split
         val_month = _choose_validation_month(X_effective, cfg.split.month_column, cfg.split.validation_month)
@@ -368,11 +399,21 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
         # Try each model with its grid
         for name, (est, grid) in candidates.items():
             pipe = Pipeline(steps=[("preprocessor", preprocessor), ("model", est)])
+            estimator = pipe
+            param_grid = grid or {}
+            if cfg.log_target:
+                estimator = TransformedTargetRegressor(
+                    regressor=pipe,
+                    func=np.log1p,
+                    inverse_func=np.expm1,
+                    check_inverse=False,
+                )
+                param_grid = _prefix_if_log_target(param_grid)
 
             with time_block("train.gridsearch", model=name):
                 gs = GridSearchCV(
-                    estimator=pipe,
-                    param_grid=grid or {},
+                    estimator=estimator,
+                    param_grid=param_grid,
                     scoring="r2",  # select on R²; we’ll still report MAE/RMSE
                     cv=3,          # small CV inside training set; val month is still our final check
                     n_jobs=-1,
@@ -387,12 +428,13 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
             log("train.validation", model=name, **metrics, best_cv_score=float(getattr(gs, "best_score_", np.nan)))
 
             # Record
+            best_params_current = _clean_params(gs.best_params_, cfg.log_target)
             results.append({
                 "model": name,
                 "val_mae": metrics["mae"],
                 "val_rmse": metrics["rmse"],
                 "val_r2": metrics["r2"],
-                "best_params": gs.best_params_,
+                "best_params": best_params_current,
                 "best_cv_score": float(getattr(gs, "best_score_", np.nan)),
             })
 
@@ -401,7 +443,7 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
                 best_score = metrics["r2"]
                 best_name = name
                 best_bundle = gs.best_estimator_
-                best_params = gs.best_params_
+                best_params = best_params_current
 
         if best_bundle is None:
             raise RuntimeError("No model was successfully trained/evaluated.")
@@ -417,6 +459,7 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
             "feature_cat": cat_cols,
             "best_params": best_params,
             "models_tried": [r["model"] for r in results],
+            "log_target": cfg.log_target,
         }, model_path)
         log("train.save_model", path=str(model_path), model=best_name, r2=best_score)
 

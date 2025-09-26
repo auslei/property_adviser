@@ -24,6 +24,8 @@ property_adviser/
 ### Configuration (`config/model.yml`)
 - `task`: currently informational (defaults to `regression`).
 - `target`: name of the column to model.
+- `log_target`: if `true`, train on `log1p(salePrice)` and predict with `expm1(...)`. Rows with
+  non-positive targets are dropped automatically and logged.
 - `input`:
   - `path`: base directory for the training inputs.
   - `X`, `y`: filenames (relative to `input.path` unless absolute).
@@ -55,6 +57,9 @@ property_adviser/
    a most-frequent imputer + one-hot encoder (`sparse_output=False`).
 7. For each enabled model:
    - Wrap the preprocessor and estimator in a `Pipeline`.
+   - If `log_target` is enabled, the pipeline is wrapped in a
+     `TransformedTargetRegressor(log1p ↔︎ expm1)` so CV scoring/evaluation stay in
+     the original currency scale.
    - Run `GridSearchCV` with 3-fold cross-validation optimising R² (`train.gridsearch`).
    - Predict on the validation month and log MAE/RMSE/R² (`train.validation`).
 8. Select the model with the highest validation R², capture best params, and
@@ -100,6 +105,7 @@ print(result["best_model_path"], result["scores_path"])
 ### Logging
 Key events emitted to the structured logger:
 - `train.start`, `train.feature_scores_loaded`
+- `train.log_target_drop_nonpositive`
 - `train.validation_month`, `train.split`, `train.preprocessor`
 - `train.gridsearch`, `train.validation`
 - `train.save_model`, `train.save_scores`
