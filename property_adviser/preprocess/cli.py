@@ -2,12 +2,11 @@
 import argparse, json
 from pathlib import Path
 import pandas as pd
-from src.common.app_logging import *
-from src.common.config import load_config
-from src.common.io import save_parquet_or_csv
-from src.preprocess_util.preprocess_clean import clean_data
-from src.preprocess_util.preprocess_derive import derive_features
-
+from property_adviser.core.app_logging import *
+from property_adviser.core.config import load_config
+from property_adviser.core.io import save_parquet_or_csv
+from property_adviser.preprocess.preprocess_clean import clean_data
+from property_adviser.preprocess.preprocess_derive import derive_features
 
 DATA_DIR = Path("data")
 PREPROCESS_DIR = Path("data_preprocess"); PREPROCESS_DIR.mkdir(parents=True, exist_ok=True)
@@ -35,7 +34,7 @@ def preprocess(cfg: dict) -> Path:
             max=float(derived["priceFactor"].max()), mean=float(derived["priceFactor"].mean()))
 
     derived_out = save_parquet_or_csv(derived, cfg['derived_path'])
-    #metadata = _make_metadata(derived, cfg); METADATA_PATH.write_text(json.dumps(metadata, indent=2))
+    metadata = _make_metadata(derived, cfg); METADATA_PATH.write_text(json.dumps(metadata, indent=2))
     #log("io.write_metadata", path=str(METADATA_PATH))
     return derived_out
 

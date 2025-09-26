@@ -8,7 +8,7 @@ import unicodedata
 import numpy as np
 import pandas as pd
 
-from src.common.app_logging import log, warn, error
+from property_adviser.core.app_logging import log, warn, error
 
 __all__ = ["clean_data"]  # only the pipeline is public
 

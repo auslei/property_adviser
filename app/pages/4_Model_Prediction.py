@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-from src.common.app_utils import load_model_resources
-from src.model_prediction import predict_property_price, predict_with_confidence_interval, predict_property_prices_batch
+from property_adviser.common.app_utils import load_model_resources
+from property_adviser.model_prediction import predict_property_price, predict_with_confidence_interval, predict_property_prices_batch
 
 
 st.set_page_config(page_title="Model Prediction", layout="wide")

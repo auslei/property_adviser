@@ -1,12 +1,12 @@
 from __future__ import annotations
 from typing import Dict, List
 
-from src.common.config import load_config
-from src.common.io import load_parquet_or_csv, save_parquet_or_csv, write_list, ensure_dir
-from src.common.app_logging import log
+from property_adviser.common.config import load_config
+from property_adviser.common.io import load_parquet_or_csv, save_parquet_or_csv, write_list, ensure_dir
+from property_adviser.common.app_logging import log
 
-from src.feature_selection_util.compute import compute_feature_scores_from_parquet
-from src.feature_selection_util.selector import select_top_features
+from property_adviser.feature_selection_util.compute import compute_feature_scores_from_parquet
+from property_adviser.feature_selection_util.selector import select_top_features
 
 
 CONFIG_PATH = "config/features.yml"

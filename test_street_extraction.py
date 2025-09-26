@@ -1,4 +1,4 @@
-from src.preprocess_util.preprocess_derive import extract_street
+from property_adviser.preprocess_util.preprocess_derive import extract_street
 
 # Comprehensive test cases
 addresses = [
