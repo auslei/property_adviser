@@ -1,4 +1,7 @@
-import json
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -8,391 +11,413 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import ElasticNet, Lasso, LinearRegression
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, Ridge
+from sklearn.metrics import mean_absolute_error, root_mean_squared_error, r2_score
+from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+from property_adviser.core.app_logging import setup_logging, log, log_exc, time_block  # type: ignore
+from property_adviser.core.config import load_config  
 
-from .config import MODEL_CONFIG_PATH, MODELS_DIR, RANDOM_STATE, TRAINING_DIR
-
-
+# -----------------------------------------------------------------------------
+# Configuration structures
+# -----------------------------------------------------------------------------
 
 MODEL_FACTORY = {
-    "LinearRegression": lambda random_state: LinearRegression(),
-    "RandomForestRegressor": lambda random_state: RandomForestRegressor(
-        random_state=random_state
-    ),
-    "GradientBoostingRegressor": lambda random_state: GradientBoostingRegressor(
-        random_state=random_state
-    ),
-    "Lasso": lambda random_state: Lasso(),
-    "ElasticNet": lambda random_state: ElasticNet(),
+    "LinearRegression": LinearRegression,
+    "Ridge": Ridge,
+    "Lasso": Lasso,
+    "ElasticNet": ElasticNet,
+    "RandomForestRegressor": RandomForestRegressor,
+    "GradientBoostingRegressor": GradientBoostingRegressor,
 }
 
+@dataclass
+class Paths:
+    X_path: Path
+    y_path: Path
+    feature_scores_path: Optional[Path]
+    artifacts_dir: Path
 
-def _load_model_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    if config is not None:
-        return config
-    return load_yaml(MODEL_CONFIG_PATH)
+@dataclass
+class SplitCfg:
+    validation_month: Optional[str]  # e.g. "2025-06" or "202506"
+    month_column: str
+
+@dataclass
+class ModelSpec:
+    enabled: bool
+    grid: Dict[str, List[Any]]
+
+@dataclass
+class TrainCfg:
+    task: str  # "regression" for now
+    target: str  # e.g. "salePrice"
+    paths: Paths
+    split: SplitCfg
+    models: Dict[str, ModelSpec]
+    verbose: bool = False
 
 
-def _prepare_model_candidates(
-    config: Dict[str, Any],
-    random_state: int,
-) -> Dict[str, Tuple[object, Dict[str, List[Any]]]]:
-    if not config:
-        config = {
+# -----------------------------------------------------------------------------
+# Utilities
+# -----------------------------------------------------------------------------
+
+def _read_any(path: Path) -> pd.DataFrame:
+    ext = path.suffix.lower()
+    if ext in (".parquet", ".pq"):
+        return pd.read_parquet(path)
+    return pd.read_csv(path)
+
+def _normalise_month(s: pd.Series) -> pd.Series:
+    """Accept 202506, '202506', '2025-06', '2025/06' -> '2025-06'."""
+    def norm_one(v):
+        if pd.isna(v):
+            return np.nan
+        v = str(v)
+        if len(v) == 6 and v.isdigit():
+            return f"{v[:4]}-{v[4:]}"
+        v = v.replace("/", "-")
+        if len(v) == 7 and v[4] == "-":
+            return v
+        # try to parse heuristically
+        try:
+            if len(v) == 8 and v.isdigit():
+                return f"{v[:4]}-{v[4:6]}"
+        except Exception:
+            pass
+        return v
+    return s.map(norm_one)
+
+def _infer_feature_sets(X: pd.DataFrame) -> Tuple[List[str], List[str]]:
+    num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+    cat_cols = [c for c in X.columns if c not in num_cols]
+    return num_cols, cat_cols
+
+def _timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+def _ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+
+# -----------------------------------------------------------------------------
+# Core training
+# -----------------------------------------------------------------------------
+
+def load_train_cfg(config_path: Optional[Path] = None, overrides: Optional[Dict[str, Any]] = None) -> TrainCfg:
+    """
+    Load YAML config (model.yml) and return a structured TrainCfg.
+    Minimal, but robust to missing keys.
+    """
+    cfg: Dict[str, Any] = {}
+    if config_path and config_path.exists():
+        cfg = load_config(config_path)
+    if overrides:
+        # shallow override is enough for this stage
+        cfg.update(overrides)
+
+    # Inputs paths from the configuration files.
+    input_cfg = cfg["input"]
+    
+    base_path = Path(input_cfg["path"])
+    
+    X_path = base_path /(input_cfg["X"]) 
+    y_path = base_path /(input_cfg["y"])
+    
+    feature_scores_path = Path(cfg["input"].get("feature_scores", None))
+    artifacts_dir = cfg["model_path"]['base']
+
+    # Split
+    split = cfg.get("split", {})
+    split_cfg = SplitCfg(
+        validation_month=split.get("validation_month"),  # e.g. "2025-06"
+        month_column=split.get("month_column", "saleYearMonth"),
+    )
+
+    # Models
+    models_cfg = cfg.get("models", {})
+    
+    # If user didn't provide any models, fall back to a default set
+    if not models_cfg:
+        models_cfg = {
             "LinearRegression": {"enabled": True, "grid": {}},
-            "RandomForestRegressor": {
-                "enabled": True,
-                "grid": {
-                    "n_estimators": [200, 400],
-                    "max_depth": [None, 10, 20],
-                    "min_samples_split": [2, 5, 10],
-                    "min_samples_leaf": [1, 2, 4],
-                },
-            },
-            "GradientBoostingRegressor": {
-                "enabled": True,
-                "grid": {
-                    "n_estimators": [100, 200],
-                    "learning_rate": [0.05, 0.1, 0.2],
-                    "max_depth": [2, 3, 4],
-                    "subsample": [0.8, 1.0],
-                },
-            },
+            "RandomForestRegressor": {"enabled": True, "grid": {}},
+            "GradientBoostingRegressor": {"enabled": True, "grid": {}},
+            "ElasticNet": {"enabled": True, "grid": {}},
+            "Lasso": {"enabled": True, "grid": {}},
+            "Ridge": {"enabled": True, "grid": {}},
+        }
+        
+    def _spec(name: str) -> ModelSpec:
+        entry = models_cfg.get(name, {})
+        return ModelSpec(
+            enabled=bool(entry.get("enabled", True)),
+            grid=entry.get("grid", {}),
+        )
+
+    models_cfg = cfg.get("models", {})
+
+    models = {}
+    for name, entry in models_cfg.items():
+        models[name] = ModelSpec(
+            enabled=bool(entry.get("enabled", True)),
+            grid=entry.get("grid", {}) or {}
+        )
+        
+    return TrainCfg(
+        task=cfg.get("task", "regression"),
+        target=cfg.get("target", "salePrice"),
+        paths=Paths(X_path=X_path, y_path=y_path, feature_scores_path=feature_scores_path, artifacts_dir=artifacts_dir),
+        split=split_cfg,
+        models=models,
+        verbose=bool(cfg.get("verbose", False)),
+    )
+
+def _apply_feature_overrides(X: pd.DataFrame, feature_scores: Optional[pd.DataFrame]) -> pd.DataFrame:
+    """
+    If feature_scores contains selected flags or include/exclude info, apply it.
+    Expect columns like: feature, selected (bool) OR include/exclude markers.
+    Falls back to leaving X untouched if nothing is found.
+    """
+    if feature_scores is None or feature_scores.empty:
+        return X
+    cols = feature_scores.columns.str.lower().tolist()
+    feats_col = "feature" if "feature" in feature_scores.columns else None
+    if not feats_col:
+        return X
+    fs = feature_scores.copy()
+    fs.columns = fs.columns.str.lower()
+
+    if "selected" in cols:
+        keep = fs.loc[fs["selected"].astype(bool), "feature"].tolist()
+        keep = [c for c in keep if c in X.columns]
+        return X[keep] if keep else X
+
+    if "include" in cols or "exclude" in cols:
+        include = set(fs.loc[fs.get("include", pd.Series(dtype=bool)).astype(bool), "feature"].tolist())
+        exclude = set(fs.loc[fs.get("exclude", pd.Series(dtype=bool)).astype(bool), "feature"].tolist())
+        final = [c for c in X.columns if (not include or c in include) and c not in exclude]
+        return X[final] if final else X
+
+    return X
+
+def _build_preprocessor(X: pd.DataFrame, y_col: str, month_col: str) -> Tuple[ColumnTransformer, List[str], List[str]]:
+    cols = [c for c in X.columns if c not in (y_col, month_col)]
+    X = X[cols]
+    num_cols, cat_cols = _infer_feature_sets(X)
+    num_pipe = Pipeline(steps=[("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())])
+    cat_pipe = Pipeline(steps=[("imputer", SimpleImputer(strategy="most_frequent")),
+                               ("ohe", OneHotEncoder(handle_unknown="ignore",  sparse_output=False))])
+    pre = ColumnTransformer(
+        transformers=[
+            ("num", num_pipe, num_cols),
+            ("cat", cat_pipe, cat_cols),
+        ],
+        remainder="drop",
+        verbose_feature_names_out=False,
+    )
+    return pre, num_cols, cat_cols
+
+def _model_candidates(cfg: TrainCfg) -> Dict[str, Tuple[Any, Dict[str, List[Any]]]]:
+    cand: Dict[str, Tuple[Any, Dict[str, List[Any]]]] = {}
+    for name, spec in cfg.models.items():
+        if not spec.enabled:
+            continue
+        if name not in MODEL_FACTORY:
+            raise ValueError(
+                f"Unsupported model '{name}'. Add it to MODEL_FACTORY or disable it in model.yml."
+            )
+        est = MODEL_FACTORY[name]()  # instantiate
+        # Accept either "model__param" or plain "param" keys in YAML
+        grid_fixed = {}
+        for k, v in (spec.grid or {}).items():
+            grid_fixed[k if k.startswith("model__") or k.startswith("preprocessor__") else f"model__{k}"] = v
+        cand[name] = (est, grid_fixed)
+    if not cand:
+        raise ValueError("No enabled models found. Check your model.yml 'models' section.")
+    return cand
+
+def _choose_validation_month(X: pd.DataFrame, month_col: str, requested: Optional[str]) -> str:
+    months = _normalise_month(X[month_col])
+    X = X.copy()
+    X[month_col] = months
+    available = sorted(m for m in months.dropna().unique())
+    if not available:
+        raise ValueError(f"No valid months in column '{month_col}'.")
+    if requested:
+        req = _normalise_month(pd.Series([requested])).iloc[0]
+        if req not in available:
+            raise ValueError(f"Requested validation_month={requested} not in available months: {available[-5:]}")
+        return req
+    return available[-1]  # default: last month
+
+def _split_by_month(X: pd.DataFrame, y: pd.Series, month_col: str, val_month: str, target_col: str):
+    months = _normalise_month(X[month_col])
+    mask_train = months < val_month
+    mask_val = months == val_month
+    X_tr, X_va = X.loc[mask_train].copy(), X.loc[mask_val].copy()
+    y_tr, y_va = y.loc[mask_train].copy(), y.loc[mask_val].copy()
+    if X_tr.empty or X_va.empty:
+        raise ValueError(f"Empty split: train={X_tr.shape}, val={X_va.shape}. Check month distribution.")
+    return X_tr, X_va, y_tr, y_va
+
+def _evaluate(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+    return {
+        "mae": float(mean_absolute_error(y_true, y_pred)),
+        "rmse": float(root_mean_squared_error(y_true, y_pred)),
+        "r2": float(r2_score(y_true, y_pred)),
+    }
+
+# -----------------------------------------------------------------------------
+# Public entry point
+# -----------------------------------------------------------------------------
+
+def train_timeseries_model(config_path: Optional[str] = "model.yml",
+                           overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Main training function:
+    - reads X, y (+ optional feature_scores)
+    - selects a validation month (requested or last)
+    - builds preprocessing + candidates
+    - grid-searches each candidate
+    - saves best model bundle + model scores CSV (both timestamped)
+    - returns a dict consumable by GUI
+    """
+    setup_logging(overrides.get("verbose", False) if overrides else False)
+
+    try:
+        cfg = load_train_cfg(Path(config_path) if config_path else None, overrides)
+        log("train.start",
+            task=cfg.task,
+            target=cfg.target,
+            X=str(cfg.paths.X_path),
+            y=str(cfg.paths.y_path),
+            feature_scores=str(cfg.paths.feature_scores_path) if cfg.paths.feature_scores_path else None,
+            artifacts=str(cfg.paths.artifacts_dir),
+            month_column=cfg.split.month_column,
+            requested_validation_month=cfg.split.validation_month,
+        )
+
+        # Load data
+        X = _read_any(cfg.paths.X_path)
+        y_df = _read_any(cfg.paths.y_path)
+        if cfg.target not in y_df.columns:
+            raise ValueError(f"Target '{cfg.target}' not found in y file columns: {list(y_df.columns)[:5]}")
+        y = y_df[cfg.target]
+        if cfg.split.month_column not in X.columns:
+            raise ValueError(f"Month column '{cfg.split.month_column}' not found in X.")
+
+        # Optional manual adjustments via feature_scores
+        fs = None
+        if cfg.paths.feature_scores_path and cfg.paths.feature_scores_path.exists():
+            fs = _read_any(cfg.paths.feature_scores_path)
+            log("train.feature_scores_loaded", rows=len(fs), cols=list(fs.columns))
+
+        # Apply overrides (selected/include/exclude)
+        X_effective = _apply_feature_overrides(X, fs)
+
+        # Choose validation month and split
+        val_month = _choose_validation_month(X_effective, cfg.split.month_column, cfg.split.validation_month)
+        log("train.validation_month", month=val_month)
+        X_tr, X_va, y_tr, y_va = _split_by_month(X_effective, y, cfg.split.month_column, val_month, cfg.target)
+        log("train.split", train_rows=len(X_tr), val_rows=len(X_va), n_features=X_tr.shape[1])
+
+        # Build preprocessor (drops target/month from feature matrix)
+        preprocessor, num_cols, cat_cols = _build_preprocessor(
+            pd.concat([X_effective, y], axis=1),
+            y_col=cfg.target,
+            month_col=cfg.split.month_column,
+        )
+        log("train.preprocessor", num=len(num_cols), cat=len(cat_cols))
+
+        # Model candidates + grids
+        candidates = _model_candidates(cfg)
+        results: List[Dict[str, Any]] = []
+
+        # Ensure artifacts dir
+        _ensure_dir(Path(cfg.paths.artifacts_dir))
+        ts = _timestamp()
+
+        best_name = None
+        best_score = -np.inf
+        best_bundle = None
+        best_params: Dict[str, Any] = {}
+
+        # Try each model with its grid
+        for name, (est, grid) in candidates.items():
+            pipe = Pipeline(steps=[("preprocessor", preprocessor), ("model", est)])
+            # If the user-provided grid forgets the "model__" prefix, add it defensively
+            fixed_grid = {}
+            for k, v in (grid or {}).items():
+                fixed_grid[k if k.startswith("model__") or k.startswith("preprocessor__") else f"model__{k}"] = v
+
+            with time_block("train.gridsearch", model=name):
+                gs = GridSearchCV(
+                    estimator=pipe,
+                    param_grid=fixed_grid or {},
+                    scoring="r2",  # select on R²; we’ll still report MAE/RMSE
+                    cv=3,          # small CV inside training set; val month is still our final check
+                    n_jobs=-1,
+                    refit=True,
+                    verbose=0,
+                )
+                gs.fit(X_tr.drop(columns=[cfg.split.month_column], errors="ignore"), y_tr)
+
+            # Evaluate on the validation month
+            y_hat = gs.predict(X_va.drop(columns=[cfg.split.month_column], errors="ignore"))
+            metrics = _evaluate(y_va.values, y_hat)
+            log("train.validation", model=name, **metrics, best_cv_score=float(getattr(gs, "best_score_", np.nan)))
+
+            # Record
+            results.append({
+                "model": name,
+                "val_mae": metrics["mae"],
+                "val_rmse": metrics["rmse"],
+                "val_r2": metrics["r2"],
+                "best_params": gs.best_params_,
+                "best_cv_score": float(getattr(gs, "best_score_", np.nan)),
+            })
+
+            # Track best by R² on validation month
+            if metrics["r2"] > best_score:
+                best_score = metrics["r2"]
+                best_name = name
+                best_bundle = gs.best_estimator_
+                best_params = gs.best_params_
+
+        if best_bundle is None:
+            raise RuntimeError("No model was successfully trained/evaluated.")
+
+        # Save artifacts (timestamped)
+        model_path = cfg.paths.artifacts_dir / f"best_model_{best_name}_{ts}.joblib"
+        joblib.dump({
+            "model": best_bundle,
+            "target": cfg.target,
+            "month_column": cfg.split.month_column,
+            "validation_month": val_month,
+            "feature_num": num_cols,
+            "feature_cat": cat_cols,
+            "best_params": best_params,
+            "models_tried": [r["model"] for r in results],
+        }, model_path)
+        log("train.save_model", path=str(model_path), model=best_name, r2=best_score)
+
+        # Save model scores CSV (timestamped)
+        scores_df = pd.DataFrame(results).sort_values("val_r2", ascending=False)
+        scores_path = cfg.paths.artifacts_dir / f"model_scores_{ts}.csv"
+        scores_df.to_csv(scores_path, index=False)
+        log("train.save_scores", path=str(scores_path), rows=len(scores_df))
+
+        # Return a GUI-friendly payload
+        return {
+            "best_model": best_name,
+            "best_model_path": str(model_path),
+            "scores_path": str(scores_path),
+            "validation_month": val_month,
+            "scores": scores_df.to_dict(orient="records"),
         }
 
-    candidates: Dict[str, Tuple[object, Dict[str, List[Any]]]] = {}
-    for name, spec in config.items():
-        if not isinstance(spec, dict):
-            continue
-        if not spec.get("enabled", True):
-            continue
-        factory = MODEL_FACTORY.get(name)
-        if factory is None:
-            raise ValueError(f"Model '{name}' is not supported. Update MODEL_FACTORY to add it.")
-        estimator = factory(random_state)
-        grid_spec = spec.get("grid") or {}
-        grid: Dict[str, List[Any]] = {}
-        for param, values in grid_spec.items():
-            if isinstance(values, (list, tuple)):
-                grid_values = list(values)
-            else:
-                grid_values = [values]
-            grid[f"model__{param}"] = grid_values
-        candidates[name] = (estimator, grid)
-
-    if not candidates:
-        raise ValueError("No models enabled in configuration. Enable at least one model to train.")
-
-    return candidates
-
-
-def _apply_feature_adjustments(
-    X: pd.DataFrame,
-    metadata: Dict[str, Any],
-    adjustments: Optional[Dict[str, Any]] = None,
-) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, List[str]]]:
-    adjustments = adjustments or {}
-    include = adjustments.get("include") or []
-    exclude = adjustments.get("exclude") or []
-
-    selected_features = [
-        feature for feature in metadata.get("selected_features", []) if feature in X.columns
-    ]
-
-    for feature in include:
-        if feature in X.columns and feature not in selected_features:
-            selected_features.append(feature)
-
-    removed = [feature for feature in exclude if feature in selected_features]
-    if removed:
-        selected_features = [feature for feature in selected_features if feature not in removed]
-        X = X.drop(columns=removed)
-
-    if not selected_features:
-        raise ValueError("No features remaining after manual adjustments. Update configuration.")
-
-    numeric_features = [
-        feature
-        for feature in metadata.get("numeric_features", [])
-        if feature in selected_features
-    ]
-    categorical_features = [
-        feature
-        for feature in metadata.get("categorical_features", [])
-        if feature in selected_features
-    ]
-
-    updated_metadata = dict(metadata)
-    updated_metadata["selected_features"] = selected_features
-    updated_metadata["numeric_features"] = numeric_features
-    updated_metadata["categorical_features"] = categorical_features
-
-    info = {
-        "include": [feat for feat in include if feat in X.columns],
-        "missing_include": [feat for feat in include if feat not in X.columns],
-        "exclude": removed,
-    }
-
-    return X[selected_features], updated_metadata, info
-
-
-# def _prepare_baseline_maps() -> Tuple[Dict[Tuple[object, int, int], float], Dict[Tuple[int, int], float]]:
-#     history = load_suburb_median_history()
-#     suburb_map = (
-#         history[history["suburb"] != GLOBAL_SUBURB_KEY][
-#             ["suburb", "saleYear", "saleMonth", "medianPrice"]
-#         ]
-#         .drop_duplicates(["suburb", "saleYear", "saleMonth"], keep="last")
-#         .set_index(["suburb", "saleYear", "saleMonth"])["medianPrice"]
-#         .to_dict()
-#     )
-#     global_map = (
-#         history[history["suburb"] == GLOBAL_SUBURB_KEY][
-#             ["saleYear", "saleMonth", "medianPrice"]
-#         ]
-#         .drop_duplicates(["saleYear", "saleMonth"], keep="last")
-#         .set_index(["saleYear", "saleMonth"])["medianPrice"]
-#         .to_dict()
-#     )
-#     return suburb_map, global_map
-
-
-
-
-
-def _load_training_data() -> tuple[pd.DataFrame, pd.Series, Dict[str, object]]:
-    X_path = TRAINING_DIR / "X.parquet"
-    y_path = TRAINING_DIR / "y.parquet"
-    metadata_path = TRAINING_DIR / "feature_metadata.json"
-
-    if not X_path.exists() or not y_path.exists() or not metadata_path.exists():
-        raise FileNotFoundError(
-            "Training data or metadata not found. Run feature selection first."
-        )
-
-    X = pd.read_parquet(X_path)
-    y_df = pd.read_parquet(y_path)
-    metadata = json.loads(metadata_path.read_text())
-
-    target_col = metadata["target"]
-    y = y_df[target_col]
-
-    # Ensure column order matches metadata
-    selected_features = metadata["selected_features"]
-    missing = [col for col in selected_features if col not in X.columns]
-    if missing:
-        raise ValueError(f"Missing expected feature columns: {missing}")
-    X = X[selected_features]
-
-    return X, y, metadata
-
-
-def build_preprocessor(metadata: Dict[str, object]) -> ColumnTransformer:
-    numeric_features: List[str] = metadata["numeric_features"]
-    categorical_features: List[str] = metadata["categorical_features"]
-
-    numeric_transformer = Pipeline(
-        steps=[
-            ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
-        ]
-    )
-
-    categorical_transformer = Pipeline(
-        steps=[
-            ("imputer", SimpleImputer(strategy="most_frequent")),
-            (
-                "encoder",
-                OneHotEncoder(handle_unknown="ignore"),
-            ),
-        ]
-    )
-
-    transformers = []
-    if numeric_features:
-        transformers.append(("num", numeric_transformer, numeric_features))
-    if categorical_features:
-        transformers.append(("cat", categorical_transformer, categorical_features))
-
-    if not transformers:
-        raise ValueError("No features available to build preprocessor.")
-
-    return ColumnTransformer(transformers)
-
-
-def train_timeseries_model(config: Optional[Dict[str, Any]] = None):
-    """
-    Trains a model to predict property prices based on time series data.
-
-    This function performs the following steps:
-    1.  Loads the training data and metadata.
-    2.  Filters the features to those relevant for time series prediction.
-    3.  Applies manual feature adjustments from the configuration.
-    4.  Splits the data into training and validation sets.
-    5.  Trains multiple candidate models with hyperparameter tuning.
-    6.  Evaluates the models and selects the best one based on R2 score.
-    7.  Saves the best model and its metrics.
-    """
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-
-    resolved_config = _load_model_config(config)
-    split_cfg = resolved_config.get("split", {})
-    test_size = float(split_cfg.get("test_size", 0.2))
-    random_state = int(split_cfg.get("random_state", RANDOM_STATE))
-
-    X, y, metadata = _load_training_data()
-    
-    # Focus on the required features for timeseries prediction
-    required_features = ["yearmonth", "bed", "bath", "car", "propertyType", "street"]
-    
-    # If yearmonth doesn't exist, create it from saleYear and saleMonth
-    if "saleYear" in X.columns and "saleMonth" in X.columns:
-        X = X.copy()
-        X["yearmonth"] = X["saleYear"] * 100 + X["saleMonth"]
-        if "yearmonth" not in metadata.get("selected_features", []):
-            selected_features = metadata.get("selected_features", [])
-            selected_features.append("yearmonth")
-            metadata["selected_features"] = selected_features
-        if "yearmonth" not in metadata.get("numeric_features", []):
-            numeric_features = metadata.get("numeric_features", [])
-            numeric_features.append("yearmonth")
-            metadata["numeric_features"] = numeric_features
-    
-    # Filter to only include relevant features
-    # Get all features that are relevant for timeseries prediction
-    relevant_feature_names = [col for col in X.columns if col in ["yearmonth", "bed", "bath", "car", "propertyType", "street"] or col in metadata.get("selected_features", [])]
-    X_filtered = X[relevant_feature_names]
-    
-    # Apply feature adjustments as specified in the configuration
-    X_filtered, training_metadata, adjustment_info = _apply_feature_adjustments(
-        X_filtered,
-        metadata,
-        resolved_config.get("manual_feature_adjustments"),
-    )
-
-    models_config = resolved_config.get("models", {})
-    candidate_models = _prepare_model_candidates(models_config, random_state)
-
-    # Target is now salePrice directly, not a factor
-    target_type = "regression"  # We're predicting actual prices, not factors
-
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_filtered,
-        y,
-        test_size=test_size,
-        random_state=random_state,
-    )
-
-    # Persist split datasets for traceability
-    X_train_path = TRAINING_DIR / "X_train.parquet"
-    X_val_path = TRAINING_DIR / "X_val.parquet"
-    y_train_path = TRAINING_DIR / "y_train.parquet"
-    y_val_path = TRAINING_DIR / "y_val.parquet"
-
-    train_dump = X_train.copy()
-    val_dump = X_val.copy()
-    train_dump.to_parquet(X_train_path, index=False)
-    val_dump.to_parquet(X_val_path, index=False)
-    y_train.to_frame(name=metadata["target"]).to_parquet(y_train_path, index=False)
-    y_val.to_frame(name=metadata["target"]).to_parquet(y_val_path, index=False)
-
-    # Train and evaluate each candidate model
-    results = []
-    best_model_name = None
-    best_pipeline = None
-    best_score = -np.inf
-    best_model_params: Dict[str, object] = {}
-
-    for name, (model, param_grid) in candidate_models.items():
-        preprocessor = build_preprocessor(training_metadata)
-        pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("model", model)])
-
-        # If a parameter grid is defined, perform a grid search to find the best hyperparameters
-        if param_grid:
-            search = GridSearchCV(
-                pipeline,
-                param_grid=param_grid,
-                scoring="r2",
-                cv=3,
-            )
-            search.fit(X_train, y_train)
-            tuned_pipeline = search.best_estimator_
-            tuned_params = search.best_params_
-            cv_best_score = float(search.best_score_)
-        else:
-            # Otherwise, train the model with its default hyperparameters
-            tuned_pipeline = pipeline.fit(X_train, y_train)
-            tuned_params = {}
-            cv_best_score = None
-
-        # Evaluate the model on the validation set
-        predictions = tuned_pipeline.predict(X_val)
-        prediction_series = pd.Series(predictions, index=X_val.index, name="prediction")
-
-        # Calculate metrics directly on price prediction
-        actual_prices = y_val
-        predicted_prices = prediction_series
-        mae = mean_absolute_error(actual_prices, predicted_prices)
-        rmse = mean_squared_error(actual_prices, predicted_prices) ** 0.5
-        r2 = r2_score(actual_prices, predicted_prices)
-
-        results.append(
-            {
-                "model": name,
-                "mae": mae,
-                "rmse": rmse,
-                "r2": r2,
-                "best_params": tuned_params,
-                "cv_best_score": cv_best_score,
-                "factor_mae": None,  # Not applicable for direct price prediction
-                "factor_rmse": None,
-                "factor_r2": None,
-            }
-        )
-
-        # Keep track of the best model based on the R2 score
-        if r2 > best_score:
-            best_score = r2
-            best_model_name = name
-            best_pipeline = tuned_pipeline
-            best_model_params = tuned_params
-
-    # Save the best model, its metrics, and metadata
-    if best_pipeline is None:
-        raise RuntimeError("Model training failed to produce a valid pipeline.")
-
-    model_path = MODELS_DIR / "best_model.pkl"
-    joblib.dump(best_pipeline, model_path)
-
-    metrics_path = MODELS_DIR / "model_metrics.json"
-    metrics_path.write_text(json.dumps(results, indent=2))
-
-    selection_path = MODELS_DIR / "best_model.json"
-    selection_path.write_text(
-        json.dumps(
-            {
-                "best_model": best_model_name,
-                "r2": best_score,
-                "model_path": str(model_path),
-                "best_params": best_model_params,
-                "target_type": target_type,
-                "manual_adjustments": adjustment_info,
-                "split": {"test_size": test_size, "random_state": random_state},
-                "model_config": models_config,
-            },
-            indent=2,
-        )
-    )
-
-    return {
-        "best_model": best_model_name,
-        "metrics": results,
-        "model_path": model_path,
-        "best_params": best_model_params,
-        "target_type": target_type,
-    }
+    except Exception as exc:
+        log_exc("train.error", exc)
+        raise

@@ -196,13 +196,13 @@ def run_feature_selection(
         write_list(selected_cols, out_dir / "selected_features.txt")
 
         # X / y outputs
-        save_parquet_or_csv(X, out_dir / "X.parquet")
+        save_parquet_or_csv(X, out_dir / "X.csv")
         y_frame = y if isinstance(y, pd.DataFrame) else y.to_frame(name=target_col)
-        save_parquet_or_csv(y_frame, out_dir / "y.parquet")
+        save_parquet_or_csv(y_frame, out_dir / "y.csv")
 
         # Optional combined training set (kept for compatibility)
         train = df[selected_cols + [target_col]]
-        save_parquet_or_csv(train, out_dir / "training.parquet")
+        save_parquet_or_csv(train, out_dir / "training.csv")
 
         log(
             "feature_selection.complete",

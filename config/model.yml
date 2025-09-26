@@ -1,33 +1,53 @@
+input: 
+  path: data/training
+  X: X.parquet
+  y: y.parquet
+  feature_scores: feature_scores.csv
+
+model_path:
+  base: ./models
+  timestamped: true
+
 split:
   test_size: 0.2
   random_state: 42
+
+manual_feature_adjustments:
+  include: []     # e.g., ["medianPrice_suburb_3m"]
+  exclude: []     # e.g., ["street"]   # if you decide to drop it
+
 models:
   LinearRegression:
     enabled: true
     grid: {}
-  RandomForestRegressor:
+
+  Ridge:
     enabled: true
     grid:
-      model__alpha: &id001
-      - 0.1
-      - 1.0
-      - 10.0
-      model__l1_ratio: &id002
-      - 0.1
-      - 0.5
-      - 0.9
-  GradientBoostingRegressor:
-    enabled: true
-    grid:
-      model__alpha: *id001
-      model__l1_ratio: *id002
-  Lasso:
-    enabled: true
-    grid:
-      model__alpha: *id001
-      model__l1_ratio: *id002
+      alpha: [0.01, 0.1, 1.0, 10.0]   # regularisation strength
+
   ElasticNet:
     enabled: true
     grid:
-      model__alpha: *id001
-      model__l1_ratio: *id002
+      alpha: [0.01, 0.1, 1.0]      # regularisation strength
+      l1_ratio: [0.1, 0.5, 0.9]    # 0 = Ridge, 1 = Lasso
+
+  Lasso:
+    enabled: true
+    grid:
+      alpha: [0.001, 0.01, 0.1, 1.0]  # regularisation strength
+      
+  RandomForestRegressor:
+    enabled: true
+    grid:
+      n_estimators: [200, 400]
+      max_depth: [null, 10, 20]
+      min_samples_split: [2, 5, 10]
+      min_samples_leaf: [1, 2, 4]
+  GradientBoostingRegressor:
+    enabled: true
+    grid:
+      n_estimators: [100, 200]
+      learning_rate: [0.05, 0.1, 0.2]
+      max_depth: [2, 3, 4]
+      subsample: [0.8, 1.0]

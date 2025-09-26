@@ -51,3 +51,4 @@ link-mode = "copy"
 [project.scripts]
 pa-preprocess = "property_adviser.preprocess.cli:main"
 pa-feature-selection = "property_adviser.feature.cli:main"
+pa-train = "property_adviser.train.cli:main"
