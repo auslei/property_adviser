@@ -46,3 +46,7 @@ strict_optional = true
 
 [tool.uv]
 link-mode = "copy"
+
+
+[project.scripts]
+pa-preprocess = "property_adviser.preprocess.cli:main"

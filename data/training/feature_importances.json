@@ -1,0 +1,66 @@
+[
+  {
+    "feature": "bed",
+    "importance": 0.5904475557212182
+  },
+  {
+    "feature": "floorSizeM2",
+    "importance": 0.08532200692028714
+  },
+  {
+    "feature": "landSizeM2",
+    "importance": 0.08160101399242577
+  },
+  {
+    "feature": "yearBuilt",
+    "importance": 0.05759518044900716
+  },
+  {
+    "feature": "saleMonth",
+    "importance": 0.05384802392243008
+  },
+  {
+    "feature": "baselineTransactions",
+    "importance": 0.04110591805239842
+  },
+  {
+    "feature": "ownerType",
+    "importance": 0.03345867787343601
+  },
+  {
+    "feature": "landUse",
+    "importance": 0.024260436952123873
+  },
+  {
+    "feature": "street",
+    "importance": 0.022391541851183458
+  },
+  {
+    "feature": "agency",
+    "importance": 0.004772682979934047
+  },
+  {
+    "feature": "bath",
+    "importance": 0.004630027517546782
+  },
+  {
+    "feature": "comparableCount",
+    "importance": 0.0005669337680089182
+  },
+  {
+    "feature": "car",
+    "importance": 0.0
+  },
+  {
+    "feature": "saleYear",
+    "importance": 0.0
+  },
+  {
+    "feature": "suburb",
+    "importance": 0.0
+  },
+  {
+    "feature": "propertyType",
+    "importance": 0.0
+  }
+]

@@ -1,0 +1,86 @@
+# Canonical AU category from propertyType + landUse
+property_category:
+  enabled: true
+  property_type_col: propertyType
+  land_use_col: landUse
+  output: propertyCategory
+  unknown_value: "Other"
+
+# Year/Month cyclic seasonality
+month_cyclical:
+  enabled: true
+  month_col: saleMonth
+  out_prefix: saleMonth
+
+# Age at sale
+property_age:
+  enabled: true
+  year_built_col: yearBuilt
+  sale_year_col: saleYear
+  output: propertyAge
+  min_age: 0
+
+# Mean price per (year, month) — your original request
+year_month_mean_price:
+  enabled: true
+  group_by: [saleYear, saleMonth]
+  target: salePrice
+  aggregate: mean
+  output: yearMonthMeanPrice
+
+# Suburb-month median + relative ratio (no external file)
+suburb_month_median_price:
+  enabled: true
+  group_by: [suburb, saleYearMonth]
+  target: salePrice
+  aggregate: median
+  output: suburbMonthMedianPrice
+
+relative_to_suburb_month:
+  enabled: true
+  numerator: salePrice
+  denominator: suburbMonthMedianPrice
+  output: relativeSuburbMedian
+  clip_min: 0.05
+  clip_max: 20
+
+# Ratios & per-area prices (reusable)
+land_floor_ratio:
+  enabled: true
+  numerator: landSizeM2
+  denominator: floorSizeM2
+  output: landFloorRatio
+  clip_min: 0.01
+  clip_max: 200
+
+price_per_area_land:
+  enabled: true
+  price_col: salePrice
+  area_col: landSizeM2
+  output: pricePerSqmLand
+  clip_min: 10
+  clip_max: 100000
+
+price_per_area_floor:
+  enabled: true
+  price_col: salePrice
+  area_col: floorSizeM2
+  output: pricePerSqmFloor
+  clip_min: 100
+  clip_max: 200000
+
+bed_bath_ratio:
+  enabled: true
+  numerator: bed
+  denominator: bath
+  output: bedBathRatio
+  clip_min: 0.1
+  clip_max: 10
+
+car_per_bed:
+  enabled: true
+  numerator: car
+  denominator: bed
+  output: carPerBed
+  clip_min: 0
+  clip_max: 5
