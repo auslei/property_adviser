@@ -1,5 +1,5 @@
-input_file: data_preprocess/derived.parquet
-output_dir: data_training/
+input_file: data/preprocess/derived.csv
+output_dir: data/training/
 target: salePrice
 correlation_threshold: 0.05     # note: MI is [0..1]; η is [0..1]; Pearson is [0..1]
 exclude_columns:
@@ -7,3 +7,5 @@ exclude_columns:
   - sourceFile
   - openInRpdata
 mi_random_state: 7
+
+#top_k: 10   # optional; if present, used instead of correlation_threshold

@@ -3,8 +3,8 @@ from typing import Dict, Mapping
 from pathlib import Path
 import pandas as pd
 
-from property_adviser.common.io import load_parquet_or_csv
-from property_adviser.feature_selection_util.metrics import pearson_abs, mutual_info_numeric, correlation_ratio
+from property_adviser.core.io import load_parquet_or_csv
+from property_adviser.feature.metrics import pearson_abs, mutual_info_numeric, correlation_ratio
 
 
 def compute_feature_scores(df, target, exclude, mi_rs):
@@ -30,6 +30,15 @@ def compute_feature_scores(df, target, exclude, mi_rs):
             d["pearson_abs"] = float(pr)
         if d:
             scores[col] = d
+    
+    # after computing all numeric MI values
+    mi_vals = [d.get("mutual_info") for d in scores.values() if "mutual_info" in d]
+    if mi_vals:
+        mi_min, mi_max = min(mi_vals), max(mi_vals)
+        if mi_max > mi_min:
+            for d in scores.values():
+                if "mutual_info" in d:
+                    d["mutual_info"] = (d["mutual_info"] - mi_min) / (mi_max - mi_min)
     
     # Categorical features → Correlation Ratio (η)
     cat_cols = df[candidates].select_dtypes(include=["object", "category", "string"]).columns
