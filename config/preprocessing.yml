@@ -1,116 +1,13 @@
-data_source:
-  path: data
-  pattern: "*.csv"
-  encoding: "utf-8-sig"
+clean:
+  config_path: config/pp_clean.yml
+  output_path: data/preprocess/cleaned.csv
+  dropped_rows_path: data/preprocess/dropped_rows.csv
 
-derived_path: data_preprocess/derived.parquet  
-dropped_rows_path: data_preprocess/dropped_rows.parquet
-cleaned_path: data_preprocess/cleaned.parquet
+derivation:
+  config_path: config/pp_derive.yml
+  output_path: data/preprocess/derived.csv
+  metadata_path: data/preprocess/metadata.json
 
-cleaning:
-  
-  min_non_null_fraction: 0.35
-  special_to_ascii:
-    "²": "2"
-  normalise_text_columns: [streetAddress, propertyType]
-  required_columns:
-    - salePrice
-    - bed
-    - bath
-  primary_target: salePrice
-  standardise:
-    propertyType:
-      apartment: [apt, apts]
-      townhouse: [town house, town-house]
-      unit: [units, unit/apartment]
-      house: [residence, detached dwelling]
-  category_mappings:
-    propertyType:
-      House: [house, townhouse, dwelling]
-      Unit: [unit, villa, duplex]
-      Apartment: [flat, studio]
-    developmentZone:
-      # Residential Growth Zone (Schedules 1–3)
-      RGZ1: [residential growth zone - schedule 1, residential growth zone schedule 1, rgz1]
-      RGZ2: [residential growth zone - schedule 2, residential growth zone schedule 2, rgz2]
-      RGZ3: [residential growth zone - schedule 3, residential growth zone schedule 3, rgz3]
-      # Neighbourhood Residential Zone (Schedules 1–4)
-      NRZ1: [neighbourhood residential zone - schedule 1, neighbourhood residential zone schedule 1, nrz1]
-      NRZ2: [neighbourhood residential zone - schedule 2, neighbourhood residential zone schedule 2, nrz2]
-      NRZ3: [neighbourhood residential zone - schedule 3, neighbourhood residential zone schedule 3, nrz3]
-      NRZ4: [neighbourhood residential zone - schedule 4, neighbourhood residential zone schedule 4, nrz4]
-      # General Residential Zone (Schedules 1–3)
-      GRZ1: [general residential zone - schedule 1, general residential zone schedule 1, grz1]
-      GRZ2: [general residential zone - schedule 2, general residential zone schedule 2, grz2]
-      GRZ3: [general residential zone - schedule 3, general residential zone schedule 3, grz3]
-      # Other common zones
-      C1Z: [commercial 1 zone, c1z]
-      C2Z: [commercial 2 zone, c2z]
-      MUZ: [mixed use zone, muz]
-      IN1Z: [industrial 1 zone, in1z]
-      IN2Z: [industrial 2 zone, in2z]
-      IN3Z: [industrial 3 zone, in3z]
-      LDRZ: [low density residential zone, ldrz]
-      TZ:  [township zone, tz]
-      UGZ1: [urban growth zone - schedule 1, urban growth zone schedule 1, ugz1]
-      UGZ2: [urban growth zone - schedule 2, urban growth zone schedule 2, ugz2]
-      UGZ3: [urban growth zone - schedule 3, urban growth zone schedule 3, ugz3]
-
-  # keep these here because preprocess_clean.py reads them
-  numeric_candidates:
-    - bed
-    - bath
-    - car
-    - landSizeM2
-    - floorSizeM2
-    - yearBuilt
-    - salePrice
-    - postcode
-
-  bucketing_rules:
-    agency: 20
-    landUse: 15
-    propertyType: 15
-
-derivations:
-  
-  # comparables are used by derive_features, not cleaning
-  comparables:
-    enabled: true
-    columns: [street, propertyType, bed, bath, car]
-    min_count: 2
-
-  street:
-    enabled: true
-    source: streetAddress
-    output: street
-    drop_unknown: true
-    config:
-      unknown_value: Unknown
-
-  street_year_median_price:
-    enabled: true
-    group_by: [street, saleYear, saleMonth]
-    target: salePrice
-    aggregate: median
-    output: streetYearMedianPrice
-
-  year_month_median_price:
-    enabled: true
-    group_by: [saleYear, saleMonth]
-    target: salePrice
-    aggregate: median
-    output: yearMonthMedianPrice
-
-  postcode_prefix:
-    enabled: true
-    source: postcode
-    length: 2
-    output: postcodePrefix
-
-  price_factor:
-    enabled: true
-    numerator: salePrice
-    denominator: yearMonthMedianPrice
-    output: priceFactor
-    min_value: 0.01
+# (optional) run flags
+options:
+  verbose: true

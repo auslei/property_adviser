@@ -3,8 +3,8 @@ from typing import Dict, Mapping
 from pathlib import Path
 import pandas as pd
 
-from src.common.io import load_parquet_or_csv
-from src.feature_selection_util.metrics import pearson_abs, mutual_info_numeric, correlation_ratio
+from property_adviser.common.io import load_parquet_or_csv
+from property_adviser.feature_selection_util.metrics import pearson_abs, mutual_info_numeric, correlation_ratio
 
 
 def compute_feature_scores(df, target, exclude, mi_rs):

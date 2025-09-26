@@ -1,0 +1,83 @@
+{
+  "rows": 3022,
+  "columns": [
+    "streetAddress",
+    "suburb",
+    "state",
+    "postcode",
+    "propertyType",
+    "bed",
+    "bath",
+    "car",
+    "landSizeM2",
+    "floorSizeM2",
+    "yearBuilt",
+    "salePrice",
+    "saleDate",
+    "saleType",
+    "agency",
+    "landUse",
+    "developmentZone",
+    "parcelDetails",
+    "ownerType",
+    "openInRpdata",
+    "sourceFile",
+    "agencyBrand",
+    "saleYear",
+    "saleMonth",
+    "saleYearMonth",
+    "propertyCategory",
+    "saleMonth_sin",
+    "saleMonth_cos",
+    "propertyAge",
+    "yearMonthMeanPrice",
+    "suburbMonthMedianPrice"
+  ],
+  "numeric_columns": [
+    "postcode",
+    "bed",
+    "bath",
+    "car",
+    "landSizeM2",
+    "floorSizeM2",
+    "yearBuilt",
+    "salePrice",
+    "saleYear",
+    "saleMonth",
+    "saleYearMonth",
+    "saleMonth_sin",
+    "saleMonth_cos",
+    "propertyAge",
+    "yearMonthMeanPrice",
+    "suburbMonthMedianPrice"
+  ],
+  "categorical_columns": [
+    "streetAddress",
+    "suburb",
+    "state",
+    "propertyType",
+    "saleType",
+    "agency",
+    "landUse",
+    "developmentZone",
+    "parcelDetails",
+    "ownerType",
+    "openInRpdata",
+    "sourceFile",
+    "agencyBrand",
+    "propertyCategory"
+  ],
+  "sources": [],
+  "configuration": {
+    "clean": {
+      "config_path": "config/pp_clean.yml",
+      "output_path": "data/preprocess/cleaned.csv",
+      "dropped_rows_path": "data/preprocess/dropped_rows.csv"
+    },
+    "derivation": {
+      "config_path": "config/pp_derive.yml",
+      "output_path": "data/preprocess/derived.csv",
+      "metadata_path": "data/preprocess/metadata.json"
+    }
+  }
+}

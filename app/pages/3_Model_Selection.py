@@ -5,14 +5,14 @@ import json
 import yaml
 from pathlib import Path
 
-from src.common.app_utils import (
+from property_adviser.common.app_utils import (
     load_training_sets,
     load_model_metrics,
     read_yaml_config,
     write_yaml_config,
 )
-from src.config import MODEL_CONFIG_PATH, MODELS_DIR, TRAINING_DIR
-from src.model_training import train_models
+from property_adviser.config import MODEL_CONFIG_PATH, MODELS_DIR, TRAINING_DIR
+from property_adviser.model_training import train_models
 
 
 st.set_page_config(page_title="Model Selection", layout="wide")

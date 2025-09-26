@@ -8,7 +8,7 @@ import unicodedata
 import numpy as np
 import pandas as pd
 
-from src.common.app_logging import log, warn, error
+from property_adviser.core.app_logging import log, warn, error
 
 __all__ = ["clean_data"]  # only the pipeline is public
 
@@ -41,37 +41,118 @@ def _filter_columns(df: pd.DataFrame, include: Optional[List[str]]) -> pd.DataFr
     keep = [c for c in include if c in df.columns]
     return df[keep]
 
+def _has_cols(df: pd.DataFrame, cols: list[str]) -> tuple[bool, list[str]]:
+    missing = [c for c in cols if c not in df.columns]
+    return (len(missing) == 0, missing)
 
-def _apply_category_mappings(
+def _safe_ratio(n: pd.Series, d: pd.Series) -> pd.Series:
+    out = n / d
+    return out.replace([np.inf, -np.inf], np.nan)
+
+def _norm_token(s: str) -> str:
+    """Uppercase, strip punctuation, collapse spaces."""
+    if not isinstance(s, str):
+        return ""
+    s = s.upper()
+    s = re.sub(r"[^A-Z0-9& ]+", " ", s)   # keep & for 'BIGGIN & SCOTT'
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+# --- Derivation Functions -------------------------------------------------
+
+def apply_category_mappings(
     df: pd.DataFrame,
-    mappings: Dict[str, Dict[str, List[str]]],
-    replace_map: Dict[str, str],
+    mappings: Dict[str, Any],
 ) -> pd.DataFrame:
-    """Consolidate categorical values by matching normalized tokens."""
-    if not mappings:
+    """
+    Apply config-driven categorical consolidation.
+
+    Supports two forms per key under `category_mappings`:
+
+    A) Back-compat (your current style) — maps IN-PLACE:
+       category_mappings:
+         propertyType:
+           House: [house, townhouse, dwelling]
+           Unit:  [unit, villa, duplex]
+           Apartment: [flat, studio]
+
+    B) Extended (recommended for agency) — non-destructive:
+       category_mappings:
+         agencyBrand:
+           source: agency
+           default: Other
+           mode: contains           # or "exact"
+           rules:
+             Noel Jones:     [NOEL JONES]
+             Barry Plant:    [BARRY PLANT]
+             Jellis Craig:   [JELLIS CRAIG]
+             Ray White:      [RAY WHITE]
+             Harcourts:      [HARCOURTS]
+             Woodards:       [WOODARDS]
+             Biggin & Scott: [BIGGIN & SCOTT]
+             Fletchers:      [FLETCHERS]
+             Unknown:        [UNKNOWN]
+             Other:          [OTHER]
+    """
+    if not isinstance(mappings, dict) or not mappings:
         return df
 
-    def norm(v: object) -> str:
-        return _normalize_text(v, replace_map).strip().lower() if isinstance(v, str) else ""
+    for out_or_col, spec in mappings.items():
+        # -------- Extended form (with rules/source) --------
+        if isinstance(spec, dict) and "rules" in spec:
+            source = spec.get("source", out_or_col)
+            default = spec.get("default", "Other")
+            mode = spec.get("mode", "contains").lower()
+            rules: Dict[str, List[str]] = spec["rules"]
 
-    for col, groups in mappings.items():
-        if col not in df.columns:
+            if source not in df.columns:
+                warn("clean.category_map", reason="missing_source", source=source, output=out_or_col)
+                continue
+
+            base = df[source].astype(str).map(_norm_token)
+            out = np.full(len(df), default, dtype=object)
+
+            # Priority = order in YAML
+            for canonical, keywords in rules.items():
+                if not keywords:
+                    continue
+                kws = [ _norm_token(k) for k in keywords ]
+                if mode == "exact":
+                    mask = base.isin(kws)
+                else:
+                    # contains any keyword
+                    mask = False
+                    for kw in kws:
+                        if kw:
+                            mask = mask | base.str.contains(re.escape(kw), regex=True)
+                out[mask] = canonical
+
+            df[out_or_col] = out
+            log("clean.category_map", output=out_or_col, source=source, unique=int(pd.Series(out).nunique()))
             continue
 
-        # Build a lookup of normalized token -> canonical label
-        lookup: Dict[str, str] = {}
-        for label, toks in groups.items():
-            for tok in (toks if isinstance(toks, (list, tuple)) else [toks]):
-                key = norm(tok)
-                if key:
-                    lookup[key] = label
+        # -------- Back-compat (map in-place on same column) --------
+        if isinstance(spec, dict):
+            col = out_or_col
+            if col not in df.columns:
+                warn("clean.category_map", reason="missing_column", column=col)
+                continue
+            base = df[col].astype(str).map(_norm_token)
+            out = np.array(df[col].values, dtype=object)  # start with original values
 
-        def replace(v: object) -> object:
-            if not isinstance(v, str):
-                return v
-            return lookup.get(norm(v), v)
+            for canonical, keywords in spec.items():
+                kws = [ _norm_token(k) for k in (keywords or []) ]
+                mask = False
+                for kw in kws:
+                    if kw:
+                        mask = mask | base.str.contains(re.escape(kw), regex=True)
+                out[mask] = canonical
 
-        df[col] = df[col].apply(replace)
+            df[col] = out
+            log("clean.category_map_inplace", column=col, unique=int(pd.Series(out).nunique()))
+            continue
+
+        warn("clean.category_map", reason="bad_spec", key=out_or_col)
 
     return df
 
@@ -196,12 +277,11 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
     """
     # --- config (strict) ---
     ds = config["data_source"]
-    cleaning = config["cleaning"]
-    min_non_null = float(cleaning["min_non_null_fraction"])
-    special_to_ascii: Dict[str, str] = cleaning["special_to_ascii"]
+    min_non_null = float(config["min_non_null_fraction"])
+    special_to_ascii: Dict[str, str] = config["special_to_ascii"]
 
     # Required lists (no inline defaults)
-    if "numeric_candidates" not in cleaning:
+    if "numeric_candidates" not in config:
         raise KeyError("Missing 'numeric_candidates' in cleaning config")
 
     combined = _load_data(ds["path"], ds["pattern"], ds["encoding"])
@@ -217,30 +297,25 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
     combined = _drop_mostly_empty_columns(combined, min_non_null)
     log("columns.drop_mostly_empty", threshold=min_non_null, cols_in=before_cols, cols_out=int(combined.shape[1]))
 
-    # --- category standardisation + consolidation (if configured) ---
-    if cleaning.get("standardise"):
-        combined = _apply_category_mappings(combined, cleaning["standardise"], special_to_ascii)
-        log("categorical.standardise", columns=list(cleaning["standardise"].keys()))
-
-    if cleaning.get("category_mappings"):
-        combined = _apply_category_mappings(combined, cleaning["category_mappings"], special_to_ascii)
-        log("categorical.map", columns=list(cleaning["category_mappings"].keys()))
+    if config.get("category_mappings"):
+        combined = apply_category_mappings(combined, config["category_mappings"])
+        log("categorical.map", columns=list(config["category_mappings"].keys()))
 
     # --- numeric coercion (strictly from config-provided list) ---
-    numeric_candidates: List[str] = list(cleaning["numeric_candidates"])
+    numeric_candidates: List[str] = list(config["numeric_candidates"])
     for col in numeric_candidates:
         if col in combined.columns:
             combined[col] = _to_numeric(combined[col])
     log("numeric.coerce", candidates=numeric_candidates)
 
     # --- replace non-ascii characters on selected columns (if configured) ---
-    if cleaning.get("normalise_text_columns"):
-        for col in cleaning["normalise_text_columns"]:
+    if config.get("normalise_text_columns"):
+        for col in config["normalise_text_columns"]:
             if col in combined.columns:
                 combined[col] = combined[col].apply(
                     lambda x: _normalize_text(str(x), special_to_ascii) if pd.notna(x) else x
                 )
-        log("normalise_text_columns", columns=list(cleaning["normalise_text_columns"]))
+        log("normalise_text_columns", columns=list(config["normalise_text_columns"]))
 
     # --- date normalisation ---
     if "saleDate" in combined.columns:
@@ -256,7 +331,7 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
     # -----------------------------
     # FILL NaNs BEFORE required-filter
     # -----------------------------
-    target = cleaning.get("primary_target", "salePrice")
+    target = config.get("primary_target", "salePrice")
     numeric_cols = combined.select_dtypes(include=["number"]).columns.tolist()
     for c in numeric_cols:
         if c != target:  # do not impute the target here
@@ -268,7 +343,7 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
     log("na.fill", numeric_cols=numeric_cols, categorical_cols=categorical_cols)
 
     # --- filter rows based on required columns (AFTER fill) ---
-    required_cols = cleaning.get("required_columns", [])
+    required_cols = config.get("required_columns", [])
     for col in required_cols:
         if col in combined.columns and col != target:
             before = int(combined.shape[0])
@@ -282,14 +357,14 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
         log("rows.filter_target", column=target, rows_in=before, rows_out=int(combined.shape[0]))
 
     # --- bucket high-cardinality categoricals (only if configured) ---
-    if cleaning.get("bucketing_rules"):
-        rules: Dict[str, int] = dict(cleaning["bucketing_rules"])
+    if config.get("bucketing_rules"):
+        rules: Dict[str, int] = dict(config["bucketing_rules"])
         for c, threshold in rules.items():
             if c in combined.columns:
                 combined[c] = _bucket_categorical(combined[c], int(threshold))
         log("categorical.bucket", rules=rules)
 
     # --- emit drop audit if requested ---
-    _emit_drop_audit_if_configured(cleaning)
+    _emit_drop_audit_if_configured(config)
 
     return combined

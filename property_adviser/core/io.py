@@ -49,9 +49,10 @@ def load_parquet_or_csv(path: Path) -> pd.DataFrame:
     raise ValueError(f"Unsupported file extension '{ext}'. Use .parquet or .csv.")
 
 
-def write_list(items: List[str], path: str) -> None:
-    """Write a list of strings to a text file, one per line."""
-    with open(path, "w") as f:
+def write_list(items: List[str], path) -> None:
+    """Write a list of strings to a text file, one per line. Overwrites the file if it exists."""
+    path = Path(path)
+    with path.open("w") as f:
         for item in items:
             f.write(f"{item}\n")
 

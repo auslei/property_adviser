@@ -9,7 +9,7 @@ Provides simple JSON-style logging helpers for consistent, structured logs.
 
 Example:
 ```
-    from src.common.app_logging import setup_logging, log, warn, error, log_exc, time_block
+    from property_adviser.common.app_logging import setup_logging, log, warn, error, log_exc, time_block
 
     setup_logging(verbose=True)
     log("startup", version="1.0.0")
@@ -28,7 +28,7 @@ Strict YAML config loader + accessor.
 Example:
 ```
     from pathlib import Path
-    from src.common.config import load_config, require
+    from property_adviser.common.config import load_config, require
 
     cfg = load_config(Path("config/preprocessing.yml"))
     data_path = require(cfg, "data_source", "path")
@@ -44,7 +44,7 @@ Example:
 ```
     import pandas as pd
     from pathlib import Path
-    from src.common.io import save_parquet_or_csv, load_parquet_or_csv
+    from property_adviser.common.io import save_parquet_or_csv, load_parquet_or_csv
 
     df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
     save_path = save_parquet_or_csv(df, Path("data/cleaned.parquet"))
@@ -58,8 +58,8 @@ Generic step runner for DataFrame transformations.
 Example:
 ```
     import pandas as pd
-    from src.common.runner import run_step
-    from src.common.app_logging import setup_logging
+    from property_adviser.common.runner import run_step
+    from property_adviser.common.app_logging import setup_logging
 
     setup_logging()
 

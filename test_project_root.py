@@ -1,5 +1,5 @@
 from pathlib import Path
-from src.common.app_utils import PROJECT_ROOT
+from property_adviser.common.app_utils import PROJECT_ROOT
 
 print(f"PROJECT_ROOT: {PROJECT_ROOT}")
 print(f"PROJECT_ROOT type: {type(PROJECT_ROOT)}")

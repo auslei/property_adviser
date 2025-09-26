@@ -27,7 +27,7 @@ MODEL_CONFIG_PATH = CONFIG_DIR / "model.yml"
 STREET_COORDS_PATH = CONFIG_DIR / "street_coordinates.csv"
 
 
-from src.common.config import load_config
+from property_adviser.common.config import load_config
 
 
 @st.cache_resource
