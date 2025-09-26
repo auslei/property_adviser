@@ -44,6 +44,8 @@ Writes:
 See PREPROCESS_MODULE.md for details.
 
 ### 2) Feature Selection (now GUI-friendly)
+Full module docs: FEATURE_SELECTION.md
+
 **CLI:**
 ```bash
 uv run pa-feature --config config/features.yml --scores-file feature_scores.parquet
@@ -85,6 +87,8 @@ selected = result.selected_columns
 ```bash
 uv run pa-train --config config/model.yml
 ```
+See TRAINING.md for configuration options, validation strategy, and artefact outputs.
+
 
 ### 4) Prediction
 ```bash
@@ -113,5 +117,8 @@ streamlit run app/Overview.py
 
 ## References
 - PREPROCESS_MODULE.md — preprocess pipeline details
+- FEATURE_SELECTION.md — feature scoring and selection pipeline
+- TRAINING.md — model training orchestration and artefacts
+- COMMON.md — shared conventions, schema expectations, glossary
 - DEV_GUIDELINES.md — coding/agentic standards
 - AGENTS.md — pipeline overview and Streamlit pages

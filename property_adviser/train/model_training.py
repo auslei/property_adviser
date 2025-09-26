@@ -18,7 +18,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from property_adviser.core.app_logging import setup_logging, log, log_exc, time_block  # type: ignore
-from property_adviser.core.config import load_config  
+from property_adviser.core.config import load_config
 
 # -----------------------------------------------------------------------------
 # Configuration structures
@@ -33,6 +33,7 @@ MODEL_FACTORY = {
     "GradientBoostingRegressor": GradientBoostingRegressor,
 }
 
+
 @dataclass
 class Paths:
     X_path: Path
@@ -40,15 +41,18 @@ class Paths:
     feature_scores_path: Optional[Path]
     artifacts_dir: Path
 
+
 @dataclass
 class SplitCfg:
     validation_month: Optional[str]  # e.g. "2025-06" or "202506"
     month_column: str
 
+
 @dataclass
 class ModelSpec:
     enabled: bool
     grid: Dict[str, List[Any]]
+
 
 @dataclass
 class TrainCfg:
@@ -70,6 +74,7 @@ def _read_any(path: Path) -> pd.DataFrame:
         return pd.read_parquet(path)
     return pd.read_csv(path)
 
+
 def _normalise_month(s: pd.Series) -> pd.Series:
     """Accept 202506, '202506', '2025-06', '2025/06' -> '2025-06'."""
     def norm_one(v):
@@ -88,18 +93,33 @@ def _normalise_month(s: pd.Series) -> pd.Series:
         except Exception:
             pass
         return v
+
     return s.map(norm_one)
+
 
 def _infer_feature_sets(X: pd.DataFrame) -> Tuple[List[str], List[str]]:
     num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     cat_cols = [c for c in X.columns if c not in num_cols]
     return num_cols, cat_cols
 
+
 def _timestamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
+
 def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
+
+
+def _normalise_param_grid(grid: Optional[Dict[str, List[Any]]]) -> Dict[str, List[Any]]:
+    params: Dict[str, List[Any]] = {}
+    if not grid:
+        return params
+    for key, values in grid.items():
+        norm_key = key if key.startswith(("model__", "preprocessor__")) else f"model__{key}"
+        params[norm_key] = values
+    return params
+
 
 # -----------------------------------------------------------------------------
 # Core training
@@ -110,69 +130,63 @@ def load_train_cfg(config_path: Optional[Path] = None, overrides: Optional[Dict[
     Load YAML config (model.yml) and return a structured TrainCfg.
     Minimal, but robust to missing keys.
     """
+    cfg_path = Path(config_path) if config_path else None
     cfg: Dict[str, Any] = {}
-    if config_path and config_path.exists():
-        cfg = load_config(config_path)
+    if cfg_path and cfg_path.exists():
+        cfg = load_config(cfg_path)
     if overrides:
-        # shallow override is enough for this stage
-        cfg.update(overrides)
+        cfg = {**cfg, **overrides}
 
-    # Inputs paths from the configuration files.
-    input_cfg = cfg["input"]
-    
-    base_path = Path(input_cfg["path"])
-    
-    X_path = base_path /(input_cfg["X"]) 
-    y_path = base_path /(input_cfg["y"])
-    
-    feature_scores_path = Path(cfg["input"].get("feature_scores", None))
-    artifacts_dir = cfg["model_path"]['base']
+    input_cfg = cfg.get("input", {})
+    base_path = Path(input_cfg.get("path", ".")).expanduser()
 
-    # Split
-    split = cfg.get("split", {})
+    def _as_path(value: Optional[str]) -> Optional[Path]:
+        if not value:
+            return None
+        candidate = Path(value).expanduser()
+        if candidate.is_absolute():
+            return candidate
+        return base_path / candidate
+
+    X_path = _as_path(input_cfg.get("X"))
+    y_path = _as_path(input_cfg.get("y"))
+    feature_scores_path = _as_path(input_cfg.get("feature_scores"))
+
+    if X_path is None or y_path is None:
+        raise ValueError("Config 'input' section must define 'X' and 'y' paths.")
+
+    artifacts_cfg = cfg.get("model_path", {})
+    artifacts_dir = Path(artifacts_cfg.get("base", "models")).expanduser()
+
+    split_cfg_raw = cfg.get("split", {})
     split_cfg = SplitCfg(
-        validation_month=split.get("validation_month"),  # e.g. "2025-06"
-        month_column=split.get("month_column", "saleYearMonth"),
+        validation_month=split_cfg_raw.get("validation_month"),  # e.g. "2025-06"
+        month_column=split_cfg_raw.get("month_column", "saleYearMonth"),
     )
 
-    # Models
-    models_cfg = cfg.get("models", {})
-    
-    # If user didn't provide any models, fall back to a default set
-    if not models_cfg:
-        models_cfg = {
-            "LinearRegression": {"enabled": True, "grid": {}},
-            "RandomForestRegressor": {"enabled": True, "grid": {}},
-            "GradientBoostingRegressor": {"enabled": True, "grid": {}},
-            "ElasticNet": {"enabled": True, "grid": {}},
-            "Lasso": {"enabled": True, "grid": {}},
-            "Ridge": {"enabled": True, "grid": {}},
-        }
-        
-    def _spec(name: str) -> ModelSpec:
-        entry = models_cfg.get(name, {})
-        return ModelSpec(
+    models_raw = cfg.get("models") or {name: {"enabled": True, "grid": {}} for name in MODEL_FACTORY}
+    models = {
+        name: ModelSpec(
             enabled=bool(entry.get("enabled", True)),
-            grid=entry.get("grid", {}),
+            grid=dict(entry.get("grid", {})) or {},
         )
+        for name, entry in models_raw.items()
+    }
 
-    models_cfg = cfg.get("models", {})
-
-    models = {}
-    for name, entry in models_cfg.items():
-        models[name] = ModelSpec(
-            enabled=bool(entry.get("enabled", True)),
-            grid=entry.get("grid", {}) or {}
-        )
-        
     return TrainCfg(
         task=cfg.get("task", "regression"),
         target=cfg.get("target", "salePrice"),
-        paths=Paths(X_path=X_path, y_path=y_path, feature_scores_path=feature_scores_path, artifacts_dir=artifacts_dir),
+        paths=Paths(
+            X_path=X_path,
+            y_path=y_path,
+            feature_scores_path=feature_scores_path,
+            artifacts_dir=artifacts_dir,
+        ),
         split=split_cfg,
         models=models,
         verbose=bool(cfg.get("verbose", False)),
     )
+
 
 def _apply_feature_overrides(X: pd.DataFrame, feature_scores: Optional[pd.DataFrame]) -> pd.DataFrame:
     """
@@ -202,13 +216,16 @@ def _apply_feature_overrides(X: pd.DataFrame, feature_scores: Optional[pd.DataFr
 
     return X
 
-def _build_preprocessor(X: pd.DataFrame, y_col: str, month_col: str) -> Tuple[ColumnTransformer, List[str], List[str]]:
-    cols = [c for c in X.columns if c not in (y_col, month_col)]
-    X = X[cols]
+
+def _build_preprocessor(X: pd.DataFrame) -> Tuple[ColumnTransformer, List[str], List[str]]:
     num_cols, cat_cols = _infer_feature_sets(X)
     num_pipe = Pipeline(steps=[("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())])
-    cat_pipe = Pipeline(steps=[("imputer", SimpleImputer(strategy="most_frequent")),
-                               ("ohe", OneHotEncoder(handle_unknown="ignore",  sparse_output=False))])
+    cat_pipe = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+        ]
+    )
     pre = ColumnTransformer(
         transformers=[
             ("num", num_pipe, num_cols),
@@ -219,6 +236,7 @@ def _build_preprocessor(X: pd.DataFrame, y_col: str, month_col: str) -> Tuple[Co
     )
     return pre, num_cols, cat_cols
 
+
 def _model_candidates(cfg: TrainCfg) -> Dict[str, Tuple[Any, Dict[str, List[Any]]]]:
     cand: Dict[str, Tuple[Any, Dict[str, List[Any]]]] = {}
     for name, spec in cfg.models.items():
@@ -228,15 +246,12 @@ def _model_candidates(cfg: TrainCfg) -> Dict[str, Tuple[Any, Dict[str, List[Any]
             raise ValueError(
                 f"Unsupported model '{name}'. Add it to MODEL_FACTORY or disable it in model.yml."
             )
-        est = MODEL_FACTORY[name]()  # instantiate
-        # Accept either "model__param" or plain "param" keys in YAML
-        grid_fixed = {}
-        for k, v in (spec.grid or {}).items():
-            grid_fixed[k if k.startswith("model__") or k.startswith("preprocessor__") else f"model__{k}"] = v
-        cand[name] = (est, grid_fixed)
+        est = MODEL_FACTORY[name]()
+        cand[name] = (est, _normalise_param_grid(spec.grid))
     if not cand:
         raise ValueError("No enabled models found. Check your model.yml 'models' section.")
     return cand
+
 
 def _choose_validation_month(X: pd.DataFrame, month_col: str, requested: Optional[str]) -> str:
     months = _normalise_month(X[month_col])
@@ -252,15 +267,24 @@ def _choose_validation_month(X: pd.DataFrame, month_col: str, requested: Optiona
         return req
     return available[-1]  # default: last month
 
-def _split_by_month(X: pd.DataFrame, y: pd.Series, month_col: str, val_month: str, target_col: str):
+
+def _split_by_month(
+    X: pd.DataFrame,
+    y: pd.Series,
+    month_col: str,
+    val_month: str,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     months = _normalise_month(X[month_col])
     mask_train = months < val_month
     mask_val = months == val_month
-    X_tr, X_va = X.loc[mask_train].copy(), X.loc[mask_val].copy()
-    y_tr, y_va = y.loc[mask_train].copy(), y.loc[mask_val].copy()
+    X_tr = X.loc[mask_train].drop(columns=[month_col], errors="ignore").copy()
+    X_va = X.loc[mask_val].drop(columns=[month_col], errors="ignore").copy()
+    y_tr = y.loc[mask_train].copy()
+    y_va = y.loc[mask_val].copy()
     if X_tr.empty or X_va.empty:
         raise ValueError(f"Empty split: train={X_tr.shape}, val={X_va.shape}. Check month distribution.")
     return X_tr, X_va, y_tr, y_va
+
 
 def _evaluate(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     return {
@@ -268,6 +292,7 @@ def _evaluate(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
         "rmse": float(root_mean_squared_error(y_true, y_pred)),
         "r2": float(r2_score(y_true, y_pred)),
     }
+
 
 # -----------------------------------------------------------------------------
 # Public entry point
@@ -320,15 +345,11 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
         # Choose validation month and split
         val_month = _choose_validation_month(X_effective, cfg.split.month_column, cfg.split.validation_month)
         log("train.validation_month", month=val_month)
-        X_tr, X_va, y_tr, y_va = _split_by_month(X_effective, y, cfg.split.month_column, val_month, cfg.target)
+        X_tr, X_va, y_tr, y_va = _split_by_month(X_effective, y, cfg.split.month_column, val_month)
         log("train.split", train_rows=len(X_tr), val_rows=len(X_va), n_features=X_tr.shape[1])
 
-        # Build preprocessor (drops target/month from feature matrix)
-        preprocessor, num_cols, cat_cols = _build_preprocessor(
-            pd.concat([X_effective, y], axis=1),
-            y_col=cfg.target,
-            month_col=cfg.split.month_column,
-        )
+        # Build preprocessor using training features
+        preprocessor, num_cols, cat_cols = _build_preprocessor(X_tr)
         log("train.preprocessor", num=len(num_cols), cat=len(cat_cols))
 
         # Model candidates + grids
@@ -336,7 +357,7 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
         results: List[Dict[str, Any]] = []
 
         # Ensure artifacts dir
-        _ensure_dir(Path(cfg.paths.artifacts_dir))
+        _ensure_dir(cfg.paths.artifacts_dir)
         ts = _timestamp()
 
         best_name = None
@@ -347,25 +368,21 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
         # Try each model with its grid
         for name, (est, grid) in candidates.items():
             pipe = Pipeline(steps=[("preprocessor", preprocessor), ("model", est)])
-            # If the user-provided grid forgets the "model__" prefix, add it defensively
-            fixed_grid = {}
-            for k, v in (grid or {}).items():
-                fixed_grid[k if k.startswith("model__") or k.startswith("preprocessor__") else f"model__{k}"] = v
 
             with time_block("train.gridsearch", model=name):
                 gs = GridSearchCV(
                     estimator=pipe,
-                    param_grid=fixed_grid or {},
+                    param_grid=grid or {},
                     scoring="r2",  # select on R²; we’ll still report MAE/RMSE
                     cv=3,          # small CV inside training set; val month is still our final check
                     n_jobs=-1,
                     refit=True,
                     verbose=0,
                 )
-                gs.fit(X_tr.drop(columns=[cfg.split.month_column], errors="ignore"), y_tr)
+                gs.fit(X_tr, y_tr)
 
             # Evaluate on the validation month
-            y_hat = gs.predict(X_va.drop(columns=[cfg.split.month_column], errors="ignore"))
+            y_hat = gs.predict(X_va)
             metrics = _evaluate(y_va.values, y_hat)
             log("train.validation", model=name, **metrics, best_cv_score=float(getattr(gs, "best_score_", np.nan)))
 
