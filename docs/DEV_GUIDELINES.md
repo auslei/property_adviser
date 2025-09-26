@@ -1,95 +1,44 @@
-# Development Standards & Guidelines
+## Development Standards & Guidelines
 
-This document sets baseline practices for development within the project,  
-with special emphasis on **agentic programming** (LLM-driven workflows).
+This document sets baseline practices for development within the project, with emphasis on **agentic programming** and reproducible data science.
 
----
+### Core Principles
+1. **Separation of concerns** — clean vs derive vs feature select vs model vs app are distinct modules.
+2. **Reproducibility** — all runs are determined by data + YAML. Outputs are versionable artefacts.
+3. **Transparency** — structured logs with key params and counts.
+4. **Simplicity** — prefer declarative YAML for mappings and thresholds.
 
-## 🔑 Core Principles
+### Configuration Standards
+- One concept per YAML (`pp_clean.yml`, `pp_derive.yml`, `features.yml`, `model.yml`).
+- Validate schema before running any step.
+- No magic defaults hidden in code; CLI accepts `--config`.
 
-1. **Separation of Concerns**
-   - Clean vs derive vs model vs app kept in different modules.
-   - Config files drive behaviour (no hard-coded logic).
+### Code Standards
+- Small, composable functions; shared helpers under `property_adviser/core`.
+- **CLI/GUI split**:
+  - Every CLI script exposes a **reusable function** (e.g. `run_feature_selection(cfg, ...)`) that accepts a **dict** and returns typed results (e.g. X, y, scores table).
+  - `main()` is a thin wrapper: parse args → load YAML → call reusable function → print.
+- **IO**:
+  - Always use `core.io.save_parquet_or_csv` / `load_parquet_or_csv` / `ensure_dir` / `write_list`.
+  - File format is decided by extension (csv/parquet).
+- **Logging**:
+  - Use `core.app_logging.log(...)` for structured events (e.g. `feature_selection.complete`, thresholds, counts).
+- **Testing**:
+  - Unit tests for derivations, cleaning rules, and selection logic (incl. MI normalisation cases).
+  - Golden tests on small fixtures for end-to-end reproducibility.
 
-2. **Reproducibility**
-   - Every run can be reproduced from config + data.
-   - Outputs saved with clear naming (`cleaned.parquet`, `derived.parquet`).
-
-3. **Transparency**
-   - Always log what happens (rows in/out, columns added, warnings).
-   - Use JSON-style structured logs for easy parsing.
-
-4. **Simplicity**
-   - Prefer YAML-driven rules to Python if logic is simple (mappings, thresholds).
-   - Functions should be small, composable, and testable.
-
----
-
-## ⚙️ Config Standards
-
-- **One concept = one YAML file**  
-  Example: `pp_clean.yml`, `pp_derive.yml`.
-
-- **YAML keys are declarative**  
-  - `enabled: true/false` → simple toggles  
-  - Explicit input/output column names
-
-- **Schema checks**  
-  Always validate that required keys exist before running a derivation.
-
----
-
-## 🧑‍💻 Code Standards
-
-- **Functions**
-  - One purpose each (`derive_ratio`, `derive_age`).
-  - Use helpers for repeat logic (`_safe_ratio`, `_norm_token`).
-
-- **Logging**
-  - Use `log(...)` for success, `warn(...)` for skipped/missing cases.
-  - Log key parameters (`rows_in`, `rows_out`, `output`, etc.).
-
-- **Error handling**
-  - Fail *soft* in cleaning (warn + skip).
-  - Fail *hard* only in CLI entrypoint if config is invalid.
-
-- **Testing**
-  - Unit test each derive/clean step with small sample data.
-  - Regression tests on known datasets.
-
----
-
-## 🧠 Agentic Programming Guidelines
-
-1. **Agent role clarity**
-   - Each agent has a narrow role (e.g., *clean data*, *derive features*, *train model*).
-   - Avoid mixing responsibilities.
-
-2. **Tool interface**
-   - Wrap functions as clear “tools” with input schema + output schema.
-   - Agents should call tools, not internal utilities directly.
-
-3. **Config-driven agents**
-   - Agents should respect YAML configs rather than invent parameters.
-   - Example: an agent shouldn’t hardcode “Unit = flat”; it should read `pp_clean.yml`.
-
-4. **Logging & Traceability**
-   - Agents must output reasoning logs (actions taken, decisions made).
-   - All steps should be reconstructible after the fact.
-
-5. **Human-in-the-loop**
-   - For ambiguous mappings or thresholds, design agents to ask for confirmation.
-   - Never silently overwrite domain-specific rules.
-
-6. **Extensibility**
-   - When adding new derivations or mappings, prefer to extend YAML rather than code.
-   - Agents should be able to propose config updates (in YAML) for review.
-
----
-
-## ✅ Summary
-
-- Keep **cleaning**, **derivation**, **model**, and **app** modules separate.
-- Drive logic through **config files**.
-- Maintain **structured logs** and **reproducibility**.
-- For agentic workflows: treat each function as a tool, log everything, and keep humans in the loop for domain-specific rules.
+### Feature Selection — Specific Guidelines
+- **Metrics**: support `pearson_abs`, `mutual_info` (min–max **normalised** per run), `eta` (categorical association).
+- **Selection logic**:
+  - Compute `best_score = max(pearson_abs, mutual_info, eta)` and `best_metric`.
+  - Threshold mode: select where `best_score >= correlation_threshold`.
+  - Top-k mode: if enabled (`use_top_k` True or `top_k` present in config), select `k` highest by `best_score`.
+- **Manual overrides**:
+  - `include` features are always selected and labelled with reason “manual include”.
+  - `exclude` features are never selected and labelled with “manual exclude (not selected)”.
+- **Single scores file**:
+  - Produce exactly one `feature_scores.(parquet|csv)` containing:
+    - `feature, pearson_abs, mutual_info, eta, best_metric, best_score, selected, reason`.
+- **Interfaces**:
+  - Reusable function returns `scores_table`, `selected_columns`, `X`, `y` and optionally `output_dir`, `scores_path` for CLI.
+  - GUI calls the same function with overrides (`include/exclude/use_top_k/top_k`) and `write_outputs=False`.
