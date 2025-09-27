@@ -36,9 +36,10 @@ pipeline, and returns sale-price predictions for one or more properties.
 ### Required Prediction Inputs
 Each property dictionary must provide at least:
 - `saleYearMonth`: integer/str in YYYYMM form (e.g. `202506`).
+- `suburb`: suburb name (case-insensitive; used to retrieve suburb-level features).
 - `bed`, `bath`, `car`: numeric counts of bedrooms/bathrooms/car spaces.
 - `propertyType`: string matching the categories seen during training.
-- `street`: optional but retained for compatibility with downstream reporting.
+- `street`: optional visually, but surfaced in the UI for completeness.
 
 Optional fields that improve accuracy when present:
 - `landSize` (square metres)
@@ -49,6 +50,8 @@ Optional fields that improve accuracy when present:
 - `saleYear`, `saleMonth` (from `saleYearMonth`).
 - `propertyAge` (if `yearBuilt` is available) and `propertyAgeBand` using the
   stored buckets.
+- Suburb-level aggregates (`suburb_price_median_*`, transaction counts, etc.) are
+  looked up from the derived dataset based on `suburb` and `saleYearMonth`.
 
 ### Imputation & Type Handling
 - Numeric features: coerced via `pd.to_numeric(..., errors="coerce")` and filled
@@ -69,6 +72,7 @@ estimate = predict_property_price(
     car=1,
     property_type="House",
     street="Example Street",
+    suburb="Mitcham",
     land_size=450.0,
     floor_size=180.0,
     year_built=1998,

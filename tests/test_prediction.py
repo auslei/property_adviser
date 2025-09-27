@@ -4,8 +4,10 @@ from unittest.mock import MagicMock
 
 import joblib
 import numpy as np
+import pandas as pd
 import pytest
 
+from property_adviser.predict import feature_store as feature_store_mod
 from property_adviser.predict import model_prediction as predict_mod
 
 
@@ -33,6 +35,27 @@ def temp_environment(monkeypatch, tmp_path):
                 "propertyAge",
                 "propertyAgeBand",
                 "propertyType",
+                "suburb_price_median_current",
+                "count",
+                "std",
+                "suburb_price_median_3m",
+                "suburb_price_median_6m",
+                "suburb_price_median_12m",
+                "suburb_txn_count_3m",
+                "suburb_txn_count_6m",
+                "suburb_txn_count_12m",
+                "suburb_volatility_3m",
+                "suburb_volatility_6m",
+                "suburb_volatility_12m",
+                "suburb_delta_3m",
+                "suburb_delta_12m",
+                "rel_price_vs_suburb_median",
+                "saleType",
+                "agency",
+                "landUse",
+                "developmentZone",
+                "ownerType",
+                "agencyBrand",
             ],
             "numeric_features": [
                 "saleYearMonth",
@@ -42,10 +65,31 @@ def temp_environment(monkeypatch, tmp_path):
                 "landSizeM2",
                 "floorSizeM2",
                 "propertyAge",
+                "suburb_price_median_current",
+                "count",
+                "std",
+                "suburb_price_median_3m",
+                "suburb_price_median_6m",
+                "suburb_price_median_12m",
+                "suburb_txn_count_3m",
+                "suburb_txn_count_6m",
+                "suburb_txn_count_12m",
+                "suburb_volatility_3m",
+                "suburb_volatility_6m",
+                "suburb_volatility_12m",
+                "suburb_delta_3m",
+                "suburb_delta_12m",
+                "rel_price_vs_suburb_median",
             ],
             "categorical_features": [
                 "propertyAgeBand",
                 "propertyType",
+                "saleType",
+                "agency",
+                "landUse",
+                "developmentZone",
+                "ownerType",
+                "agencyBrand",
             ],
             "impute": {
                 "numeric": {
@@ -81,6 +125,37 @@ def temp_environment(monkeypatch, tmp_path):
     monkeypatch.setattr(predict_mod, "MODELS_DIR", models_dir)
     monkeypatch.setattr(predict_mod, "TRAINING_DIR", training_dir)
 
+    reference_row = pd.Series(
+        {
+            "suburb_price_median_current": 1_050_000,
+            "count": 20,
+            "std": 100_000,
+            "suburb_price_median_3m": 1_020_000,
+            "suburb_price_median_6m": 1_000_000,
+            "suburb_price_median_12m": 950_000,
+            "suburb_txn_count_3m": 15,
+            "suburb_txn_count_6m": 30,
+            "suburb_txn_count_12m": 60,
+            "suburb_volatility_3m": 110_000,
+            "suburb_volatility_6m": 120_000,
+            "suburb_volatility_12m": 130_000,
+            "suburb_delta_3m": 0.05,
+            "suburb_delta_12m": 0.12,
+            "rel_price_vs_suburb_median": 1.1,
+            "saleType": "Auction",
+            "agency": "Example Agency",
+            "landUse": "Detached Dwelling",
+            "developmentZone": "RZ",
+            "ownerType": "Owner Occupied",
+            "agencyBrand": "Example Brand",
+        }
+    )
+
+    def fake_fetch(suburb: str, sale_year_month: int, columns):
+        return reference_row.reindex(columns)
+
+    monkeypatch.setattr(feature_store_mod, "fetch_reference_features", fake_fetch)
+
     return dummy_model
 
 
@@ -90,6 +165,7 @@ def test_prepare_prediction_data_imputes_missing_values(temp_environment):
     rows = [
         {
             "saleYearMonth": 202506,
+            "suburb": "Mitcham",
             "bed": 4,
             "bath": 3,
             "car": 2,
@@ -101,6 +177,7 @@ def test_prepare_prediction_data_imputes_missing_values(temp_environment):
         {
             # Missing several optional fields – should be imputed
             "saleYearMonth": 202501,
+            "suburb": "Mitcham",
             "bed": 3,
             "bath": 2,
             "car": 1,
@@ -131,6 +208,7 @@ def test_predict_property_price_uses_model(temp_environment):
         car=1,
         property_type="House",
         street="Example",
+        suburb="Mitcham",
         land_size=450,
         floor_size=190,
         year_built=1999,
@@ -143,6 +221,7 @@ def test_batch_prediction_preserves_order(temp_environment):
     properties = [
         {
             "saleYearMonth": 202506,
+            "suburb": "Mitcham",
             "bed": 3,
             "bath": 2,
             "car": 1,
@@ -150,6 +229,7 @@ def test_batch_prediction_preserves_order(temp_environment):
         },
         {
             "saleYearMonth": 202507,
+            "suburb": "Blackburn",
             "bed": 2,
             "bath": 1,
             "car": 0,

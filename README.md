@@ -90,6 +90,12 @@ Loads the persisted pipeline and scores new rows (outside this README’s scope)
 - `docs/FEATURE_SELECTION.md` — scoring, guardrails, and overrides
 - `docs/TRAINING.md` — model orchestration and artefact schema
 - `docs/PREDICT.md` — runtime prediction helpers and metadata contract
+
+Optional Streamlit front-end:
+```bash
+uv pip install streamlit
+streamlit run app/predict_app.py
+```
 - `docs/COMMON.md` — shared conventions, schema expectations, glossary
 - `docs/DEV_GUIDELINES.md` — coding standards and agent workflows
 - `docs/AGENTS.md` — agent-facing walkthrough of the pipeline and UI

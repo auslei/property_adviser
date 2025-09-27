@@ -20,6 +20,7 @@ suburb_volatility_12m
 suburb_delta_3m
 suburb_delta_12m
 rel_price_vs_suburb_median
+rel_street_effect
 propertyType
 saleType
 agency
@@ -27,4 +28,5 @@ landUse
 developmentZone
 ownerType
 agencyBrand
+street
 propertyAgeBand

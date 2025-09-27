@@ -3,7 +3,7 @@
 
 street:
   enabled: true
-  source: address
+  source: streetAddress
   output: street
   drop_unknown: false
   config:

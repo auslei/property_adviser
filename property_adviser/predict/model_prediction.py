@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from property_adviser.config import MODELS_DIR, TRAINING_DIR
+from property_adviser.predict.feature_store import fetch_reference_features
 
 
 def load_trained_model() -> tuple:
@@ -73,6 +74,9 @@ def _prepare_prediction_data(
     }
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
 
+    if "suburb" not in df.columns:
+        raise ValueError("'suburb' is required for prediction inputs")
+
     # Ensure saleYearMonth is present and numeric
     if "saleYearMonth" not in df.columns:
         raise ValueError("'saleYearMonth' is required for prediction inputs")
@@ -113,15 +117,38 @@ def _prepare_prediction_data(
 
     # Build the model-ready frame
     prepared = pd.DataFrame(index=df.index, columns=model_columns)
+    for idx, row in df.iterrows():
+        for column in model_columns:
+            if column in row.index:
+                prepared.at[idx, column] = row[column]
+
+        suburb = str(row.get("suburb", "")).strip()
+        sale_year_month = pd.to_numeric(row.get("saleYearMonth"), errors="coerce")
+        if suburb and not pd.isna(sale_year_month):
+            try:
+                reference = fetch_reference_features(
+                    suburb=suburb,
+                    sale_year_month=int(sale_year_month),
+                    columns=[col for col in model_columns if col not in {"saleYearMonth"}],
+                )
+            except FileNotFoundError:
+                reference = None
+
+            if reference is not None:
+                for column, value in reference.items():
+                    if column in prepared.columns and (
+                        pd.isna(prepared.at[idx, column]) or column not in row.index
+                    ):
+                        prepared.at[idx, column] = value
+
     for column in model_columns:
-        if column in df.columns:
-            prepared[column] = df[column]
-        elif column in impute_numeric:
-            prepared[column] = impute_numeric[column]
-        elif column in impute_categorical:
-            prepared[column] = impute_categorical[column]
-        else:
-            prepared[column] = np.nan
+        if column not in prepared.columns:
+            continue
+        if prepared[column].isna().all():
+            if column in impute_numeric:
+                prepared[column] = impute_numeric[column]
+            elif column in impute_categorical:
+                prepared[column] = impute_categorical[column]
 
     # Enforce dtypes
     for column in numeric_features:
@@ -156,6 +183,7 @@ def predict_property_price(
     car: int,
     property_type: str,
     street: str,
+    suburb: str,
     *,
     land_size: Optional[float] = None,
     floor_size: Optional[float] = None,
@@ -175,6 +203,7 @@ def predict_property_price(
             "car": car,
             "propertyType": property_type,
             "street": street,
+            "suburb": suburb,
             "landSize": land_size,
             "floorSize": floor_size,
             "yearBuild": year_built,
@@ -194,7 +223,7 @@ def predict_property_prices_batch(
 ) -> List[float]:
     """
     Predict property prices for multiple properties at once. Each dictionary should
-    contain at minimum: `saleYearMonth`, `bed`, `bath`, `car`, `propertyType`, and
+    contain at minimum: `saleYearMonth`, `suburb`, `bed`, `bath`, `car`, `propertyType`, and
     may optionally include `street`, `landSize`, `floorSize`, `yearBuild`.
     """
     model, metadata = load_trained_model()
@@ -215,6 +244,7 @@ def predict_with_confidence_interval(
     car: int,
     property_type: str,
     street: str,
+    suburb: str,
     *,
     land_size: Optional[float] = None,
     floor_size: Optional[float] = None,
@@ -249,6 +279,7 @@ def predict_with_confidence_interval(
         car,
         property_type,
         street,
+        suburb,
         land_size=land_size,
         floor_size=floor_size,
         year_built=year_built,

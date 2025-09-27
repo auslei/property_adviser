@@ -26,6 +26,7 @@
     "saleYear",
     "saleMonth",
     "saleYearMonth",
+    "street",
     "month_id",
     "saleMonth_sin",
     "saleMonth_cos",
@@ -44,6 +45,7 @@
     "suburb_delta_3m",
     "suburb_delta_12m",
     "rel_price_vs_suburb_median",
+    "rel_street_effect",
     "propertyAge",
     "propertyAgeBand"
   ],
@@ -77,6 +79,7 @@
     "suburb_delta_3m",
     "suburb_delta_12m",
     "rel_price_vs_suburb_median",
+    "rel_street_effect",
     "propertyAge"
   ],
   "categorical_columns": [
@@ -92,7 +95,8 @@
     "ownerType",
     "openInRpdata",
     "sourceFile",
-    "agencyBrand"
+    "agencyBrand",
+    "street"
   ],
   "sources": [],
   "configuration": {
