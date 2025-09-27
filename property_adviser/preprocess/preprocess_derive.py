@@ -1,6 +1,4 @@
-# preprocess_derive.py
-
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Optional, Tuple
 import numpy as np
 import pandas as pd
 import re
@@ -77,7 +75,7 @@ def extract_street(address: str, cfg: Dict[str, Any]) -> str:
     return addr.title() if addr else unknown
 
 
-# --- Derived Features ---
+# --- Derived Features (existing) ---
 def apply_group_aggregate(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
     """
     Aggregate a column by groups and merge the result back into the dataframe.
@@ -164,29 +162,6 @@ def _derive_date_parts(df: pd.DataFrame) -> pd.DataFrame:
 def _derive_property_category(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
     """
     Derive a canonical propertyCategory field from propertyType + landUse.
-
-    Categories (Australian usage):
-
-    - House:
-        Free-standing dwellings on their own lot. Detached houses with land.
-        Includes 'HOUSE', 'HOUSE: STANDARD', 'HOUSE: ONE STOREY / LOWSET'.
-        Land use: 'Detached Dwelling', 'Detached Dwelling (existing)'.
-
-    - Unit:
-        Medium-density dwellings such as townhouses, villas, duplexes.
-        Includes 'UNIT', 'UNIT: STANDARD', 'UNIT: TOWNHOUSE/VILLA'.
-        Land use: 'Townhouse', 'Single Strata Unit/Villa Unit/Townhouse',
-        'OYO Unit', 'OYO Subdivided Dwelling'.
-
-    - Flat:
-        Older/smaller apartment blocks or walk-ups (e.g. 'FLATS: SELF CONTAINED').
-
-    - Apartment:
-        Multi-storey buildings, shared entries (often captured by land use).
-        Land use: 'Strata Unit or Flat  (Unspecified)', 'OYO Subdivided Flat'.
-
-    - Other:
-        Commercial/industrial/mixed/vacant, or anything not matched above.
     """
     prop_col = spec.get("property_type_col", "propertyType")
     land_col = spec.get("land_use_col", "landUse")
@@ -214,8 +189,8 @@ def _derive_property_category(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.Data
         }:
             return "Unit"
 
-        # --- Flat (check before Apartment) ---
-        if "FLAT" in p:  # catches 'FLATS: SELF CONTAINED' etc.
+        # --- Flat ---
+        if "FLAT" in p:
             return "Flat"
 
         # --- Apartment ---
@@ -360,6 +335,243 @@ def derive_price_per_area(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFram
     return derive_ratio(df, s)
 
 
+# --- New: Temporal / Market Trend helpers -----------------------------
+def derive_month_index(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Create a monotonic month index from saleYearMonth:
+      month_id = dense rank of saleYearMonth starting at 0 (or offset).
+    """
+    if not spec.get("enabled", True):
+        return df
+    month_col = spec.get("month_col", "saleYearMonth")
+    out = spec.get("output", "month_id")
+    offset = int(spec.get("offset", 0))
+
+    ok, missing = _has_cols(df, [month_col])
+    if not ok:
+        warn("derive.month_index", reason="missing_columns", missing=missing)
+        return df
+
+    # Dense rank, stable across dataset
+    order = pd.Series(pd.unique(pd.Series(df[month_col]).dropna())).sort_values().tolist()
+    mapping = {m: i + offset for i, m in enumerate(order)}
+    df[out] = pd.to_numeric(df[month_col], errors="coerce").map(mapping)
+    log("derive.month_index", output=out, offset=offset, unique_months=len(order))
+    return df
+
+
+def _build_suburb_month_table(
+    df: pd.DataFrame,
+    suburb_col: str,
+    month_col: str,
+    price_col: str
+) -> pd.DataFrame:
+    """Aggregate to suburb x month level (median, count, std)."""
+    ok, missing = _has_cols(df, [suburb_col, month_col, price_col])
+    if not ok:
+        raise KeyError(f"Missing columns for suburb-month table: {missing}")
+    tmp = df[[suburb_col, month_col, price_col]].copy()
+    tmp[month_col] = pd.to_numeric(tmp[month_col], errors="coerce")
+    g = (
+        tmp.groupby([suburb_col, month_col], dropna=False)[price_col]
+        .agg(median="median", count="count", std="std")
+        .reset_index()
+    )
+    return g
+
+
+def derive_suburb_time_aggregates(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Rolling suburb medians, counts (volume), and volatility (std) with NO leakage:
+      - shift(1) before applying rolling windows so only past months are used.
+    Also adds price momentum deltas on monthly medians (pct_change over 3/12 months).
+
+    Spec:
+      suburb_col: str (default 'suburb')
+      month_col: str (default 'saleYearMonth')
+      price_col: str (default 'salePrice')
+      windows: list[int] (default [3,6,12])
+      prefix: str (default 'suburb')
+    """
+    if not spec.get("enabled", True):
+        return df
+
+    suburb_col = spec.get("suburb_col", "suburb")
+    month_col = spec.get("month_col", "saleYearMonth")
+    price_col = spec.get("price_col", "salePrice")
+    windows: List[int] = spec.get("windows", [3, 6, 12])
+    prefix = spec.get("prefix", "suburb")
+
+    try:
+        sm = _build_suburb_month_table(df, suburb_col, month_col, price_col)
+    except KeyError as e:
+        warn("derive.suburb_time_aggregates", reason="missing_columns", error=str(e))
+        return df
+
+    # Ensure sorted by month for each suburb
+    sm = sm.sort_values([suburb_col, month_col])
+    # Past-only info
+    for col in ["median", "count", "std"]:
+        sm[f"{col}_lag1"] = sm.groupby(suburb_col)[col].shift(1)
+
+    # Rolling windows
+    for w in windows:
+        sm[f"median_roll_{w}m"] = sm.groupby(suburb_col)["median_lag1"].transform(
+            lambda s: s.rolling(window=w, min_periods=1).median()
+        )
+        sm[f"count_roll_{w}m"] = sm.groupby(suburb_col)["count_lag1"].transform(
+            lambda s: s.rolling(window=w, min_periods=1).sum()
+        )
+        sm[f"std_roll_{w}m"] = sm.groupby(suburb_col)["std_lag1"].transform(
+            lambda s: s.rolling(window=w, min_periods=1).mean()
+        )
+
+    # Momentum on monthly medians (not rolling): pct change vs 3/12 months ago
+    sm["delta_3m"] = sm.groupby(suburb_col)["median"].pct_change(periods=3)
+    sm["delta_12m"] = sm.groupby(suburb_col)["median"].pct_change(periods=12)
+
+    # Merge back to row level
+    keep_cols = [suburb_col, month_col,
+                 "median", "count", "std",
+                 "median_roll_3m", "median_roll_6m", "median_roll_12m",
+                 "count_roll_3m", "count_roll_6m", "count_roll_12m",
+                 "std_roll_3m", "std_roll_6m", "std_roll_12m",
+                 "delta_3m", "delta_12m"]
+    sm = sm[keep_cols]
+    sm = sm.rename(columns={
+        "median": f"{prefix}_price_median_current",
+        "median_roll_3m": f"{prefix}_price_median_3m",
+        "median_roll_6m": f"{prefix}_price_median_6m",
+        "median_roll_12m": f"{prefix}_price_median_12m",
+        "count_roll_3m": f"{prefix}_txn_count_3m",
+        "count_roll_6m": f"{prefix}_txn_count_6m",
+        "count_roll_12m": f"{prefix}_txn_count_12m",
+        "std_roll_3m": f"{prefix}_volatility_3m",
+        "std_roll_6m": f"{prefix}_volatility_6m",
+        "std_roll_12m": f"{prefix}_volatility_12m",
+        "delta_3m": f"{prefix}_delta_3m",
+        "delta_12m": f"{prefix}_delta_12m",
+    })
+
+    merged = df.merge(sm, on=[suburb_col, month_col], how="left")
+    log("derive.suburb_time_aggregates", rows=merged.shape[0], windows=windows)
+    return merged
+
+
+def derive_relative_pricing(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Relative pricing features:
+      - price_vs_suburb_median = salePrice / suburb_price_median_current
+      - price_vs_region_median (optional if region_col provided)
+      - street_effect: street_mean / suburb_mean, only if street_count >= min_samples
+
+    Spec:
+      price_col: str (default 'salePrice')
+      suburb_col: str (default 'suburb')
+      month_col: str (default 'saleYearMonth')
+      suburb_median_col: str (default 'suburb_price_median_current')
+      region_col: Optional[str] (e.g., 'region')
+      street_col: Optional[str] (e.g., 'street')
+      min_samples: int (default 5) for street_effect
+      output_prefix: str (default 'rel')
+    """
+    if not spec.get("enabled", True):
+        return df
+
+    price_col = spec.get("price_col", "salePrice")
+    suburb_col = spec.get("suburb_col", "suburb")
+    month_col = spec.get("month_col", "saleYearMonth")
+    median_col = spec.get("suburb_median_col", "suburb_price_median_current")
+    region_col = spec.get("region_col")
+    street_col = spec.get("street_col")
+    min_samples = int(spec.get("min_samples", 5))
+    prefix = spec.get("output_prefix", "rel")
+
+    needed = [price_col, suburb_col, month_col, median_col]
+    ok, missing = _has_cols(df, needed)
+    if not ok:
+        warn("derive.relative_pricing", reason="missing_columns", missing=missing)
+        return df
+
+    # price vs suburb median
+    df[f"{prefix}_price_vs_suburb_median"] = _safe_ratio(
+        pd.to_numeric(df[price_col], errors="coerce"),
+        pd.to_numeric(df[median_col], errors="coerce"),
+    )
+
+    # region median (per month) if region_col provided
+    if region_col and region_col in df.columns:
+        tmp = df[[region_col, month_col, price_col]].copy()
+        tmp[month_col] = pd.to_numeric(tmp[month_col], errors="coerce")
+        rmed = (
+            tmp.groupby([region_col, month_col], dropna=False)[price_col]
+            .median()
+            .reset_index(name="region_median")
+        )
+        df = df.merge(rmed, on=[region_col, month_col], how="left")
+        df[f"{prefix}_price_vs_region_median"] = _safe_ratio(
+            pd.to_numeric(df[price_col], errors="coerce"),
+            pd.to_numeric(df["region_median"], errors="coerce"),
+        )
+        df = df.drop(columns=["region_median"], errors="ignore")
+
+    # street effect (global means with leave-one-out adjustment where possible)
+    if street_col and street_col in df.columns:
+        # Precompute sums and counts to allow LOO mean
+        grp_cols = [street_col]
+        s_sum = df.groupby(grp_cols, dropna=False)[price_col].transform("sum")
+        s_cnt = df.groupby(grp_cols, dropna=False)[price_col].transform("count")
+        st_mean_loo = (s_sum - df[price_col]) / (s_cnt - 1)
+        st_mean_loo = st_mean_loo.where(s_cnt > 1)  # NaN if only one obs
+
+        # Suburb mean (LOO)
+        sub_sum = df.groupby([suburb_col], dropna=False)[price_col].transform("sum")
+        sub_cnt = df.groupby([suburb_col], dropna=False)[price_col].transform("count")
+        sub_mean_loo = (sub_sum - df[price_col]) / (sub_cnt - 1)
+        sub_mean_loo = sub_mean_loo.where(sub_cnt > 1)
+
+        effect = _safe_ratio(st_mean_loo, sub_mean_loo)
+        # Enforce minimum sample requirement on street
+        effect = effect.where(s_cnt >= min_samples)
+        df[f"{prefix}_street_effect"] = effect
+
+    log("derive.relative_pricing",
+        created=[c for c in df.columns if c.startswith(prefix + "_")],
+        min_samples=min_samples)
+    return df
+
+
+def derive_age_bands(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Bin property age into categories.
+    Spec:
+      age_col: str (default 'propertyAge')
+      output: str (default 'propertyAgeBand')
+      bands: list of upper bounds (default [5, 20]) giving: <=5, 6-20, >20
+      labels: optional list[str]
+    """
+    if not spec.get("enabled", True):
+        return df
+
+    age_col = spec.get("age_col", "propertyAge")
+    out = spec.get("output", "propertyAgeBand")
+    bands = spec.get("bands", [5, 20])
+    labels = spec.get("labels")
+
+    ok, missing = _has_cols(df, [age_col])
+    if not ok:
+        warn("derive.age_bands", reason="missing_columns", missing=missing)
+        return df
+
+    age = pd.to_numeric(df[age_col], errors="coerce")
+    edges = [-np.inf] + list(bands) + [np.inf]
+    if labels is None:
+        labels = [f"0–{bands[0]}", f"{bands[0]+1}–{bands[1]}", f"{bands[1]+1}+"]
+    df[out] = pd.cut(age, bins=edges, labels=labels)
+    log("derive.age_bands", output=out, bands=bands, labels=list(labels))
+    return df
+
+
 # --- Main Entry ---
 def derive_features(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     """Run configured derivation steps on the dataframe."""
@@ -437,6 +649,23 @@ def derive_features(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
 
         if name == "price_per_area":
             df = run_step("derive.price_per_area", derive_price_per_area, df, spec=spec)
+            continue
+
+        # --- New entries ---
+        if name == "month_index":
+            df = run_step("derive.month_index", derive_month_index, df, spec=spec)
+            continue
+
+        if name == "suburb_time_aggregates":
+            df = run_step("derive.suburb_time_aggregates", derive_suburb_time_aggregates, df, spec=spec)
+            continue
+
+        if name == "relative_pricing":
+            df = run_step("derive.relative_pricing", derive_relative_pricing, df, spec=spec)
+            continue
+
+        if name == "age_bands":
+            df = run_step("derive.age_bands", derive_age_bands, df, spec=spec)
             continue
 
         warn("derive.step", name=name, reason="unknown_step")

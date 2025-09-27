@@ -1,17 +1,19 @@
 ## Property Analysis Agents Guide
 
 ### Overview
-- End-to-end pipeline for forecasting property prices using suburb-level data.  
+- End-to-end pipeline for forecasting property prices using suburb-level data.
 - Core stages are modularised:
+  0. Macro data ingestion (CPI, cash rate, ASX) — optional enrichment
   1. Preprocessing (cleaning + derivations)
-  2. Feature selection
-  3. Model training/selection
-  4. Prediction (using persisted parquet/model artefacts)
+  2. Feature selection (scoring, guardrails, overrides)
+  3. Model training / selection
+  4. Prediction on persisted artefacts
 - A Streamlit UI wraps the pipeline for interactive runs.
 
 ### Reference Docs
+- MACRO.md — macroeconomic fetcher and integration helper
 - PREPROCESS_MODULE.md — preprocessing pipeline breakdown
-- FEATURE_SELECTION.md — feature scoring and selection details
+- FEATURE_SELECTION.md — feature scoring, guardrails, and overrides
 - TRAINING.md — model training workflow and artefacts
 - COMMON.md — shared conventions, data contracts, glossary
 - DEV_GUIDELINES.md — coding standards and agent workflows
@@ -20,63 +22,57 @@
 
 ## Pipeline Stages
 
+### 0) Macro Data (`property_adviser/macro`)
+- CLI: `uv run pa-macro --config config/macro.yml --verbose`
+- Fetches RBA CPI (quarterly + annual), RBA cash rate, and ASX index series, writing CSVs to `data/macro/` plus a merged `macro_au_annual.csv`.
+- `add_macro_yearly(df, macro_path=...)` joins macro features onto derived property data by sale year (see MACRO.md for column schema).
+
 ### 1) Preprocessing (`property_adviser/preprocess`)
-- **Cleaning** (`preprocess_clean.py`): standardises categories and consolidates messy text. (See PREPROCESS_MODULE.md.)
-- **Derivations** (`preprocess_derive.py`): computes features (ratios, per-area prices, medians, cyclical encodings, etc.).
-- **CLI** (`cli.py`): orchestrates cleaning + derivation via split configs.
-- Config split:
-  - `config/pp_clean.yml` (cleaning)
-  - `config/pp_derive.yml` (derivations)
-  - `config/preprocessing.yml` (orchestrator)
+- `preprocess/cli.py` orchestrates cleaning and derivation via `config/preprocessing.yml`.
+- Cleaning (`preprocess_clean.py`): renames columns, fixes categorical noise, coerces numerics, audits dropped rows if `dropped_rows_path` is set.
+- Derivation (`preprocess_derive.py`): seasonality encodings, suburb rolling stats, ratio features, age bands, optional macro joins.
+- Outputs land in `data/preprocess/`: `cleaned.csv`, `derived.csv`, `metadata.json`, optional `dropped_rows` parquet.
 
 ### 2) Feature Selection (`property_adviser/feature`)
-- Inputs: **derived dataset** (from step 1) and `config/features.yml`. Full behaviour in FEATURE_SELECTION.md.
-- Methods:
-  - Filter/embedded metrics per feature: `pearson_abs` (|corr|), **normalised** `mutual_info` [0–1], and `eta` for categorical.
-  - Global threshold on the **best_score** across these metrics.
-  - Optional **top-k** selection mode (rank by best_score).
-- **Manual overrides (GUI-friendly):**
-  - `include`: always selected (reason = “manual include”)
-  - `exclude`: never selected (reason = “manual exclude (not selected)”)
-  - `use_top_k`: None → follow config; True/False → force mode
-  - `top_k`: override value (if enabled)
-- **Outputs:**
-  - `X.parquet`, `y.parquet`
-  - `training.parquet` (X + y combined, optional compatibility)
-  - Single **scores + selection** file (default `feature_scores.parquet`) containing:
-    - `feature, pearson_abs, mutual_info, eta, best_metric, best_score, selected, reason`
-- **Entrypoints**
-  - **CLI**: `uv run pa-feature --config config/features.yml --scores-file feature_scores.parquet`
-  - **Code/GUI**: `run_feature_selection(cfg, include=[], exclude=[], use_top_k=None, top_k=None, write_outputs=False)`
+- Inputs: `derived.csv` and `config/features.yml` (target, threshold/top-k, guardrail settings).
+- Metrics: `pearson_abs`, **normalised** `mutual_info`, `eta`; `best_score` drives selection.
+- Guardrails: drop ID-like columns, enforce family preferences, prune correlated pairs (all annotated in the `reason` column).
+- Manual overrides stay GUI-friendly: `include`, `exclude`, `use_top_k`, `top_k`.
+- Outputs in `data/training/`: `feature_scores.parquet`, `X.csv`, `y.csv`, `training.csv`, `selected_features.txt`.
+- Programmatic entrypoint `run_feature_selection` mirrors CLI behaviour for Streamlit usage.
 
-### 3) Model Training/Selection (`property_adviser/train`)
-- Trains multiple regressors, evaluates metrics (MAE/RMSE/R²), and saves the best model. Refer to TRAINING.md for configuration nuances and logging events.
+### 3) Model Training / Selection (`property_adviser/train`)
+- CLI: `uv run pa-train --config config/model.yml --verbose`.
+- Respects manual selections in the scores table, performs month-based train/validation split (auto fallback to latest month), and wraps models in a preprocessing pipeline.
+- Supports `log_target: true` for log-transform training, plus per-model GridSearch definitions (defaults cover Linear/Ridge/Lasso/ElasticNet/RF/GBR).
+- Artefacts saved to `models/`: timestamped `best_model_*.joblib`, `model_scores_*.csv`, with metadata enumerating validation month and feature list.
 
 ### 4) Prediction (`property_adviser/predict`)
-- Loads the best model and scores new inputs.
+- Loads a persisted pipeline (`best_model_*.joblib`) and produces scored outputs for new records.
 
 ---
 
 ## Streamlit Application
 - `app/Overview.py` — high-level dashboard
-- `app/pages/1_Data_Preprocessing.py` — run/inspect preprocessing
-- `app/pages/2_Feature_Engineering.py` — choose target, view metrics, apply overrides (`include/exclude`, top-k), generate X/y
-- `app/pages/3_Model_Selection.py` — training and metrics (see TRAINING.md for backend behaviour)
-- `app/pages/4_Model_Prediction.py` — interactive scoring
+- `app/pages/1_Data_Preprocessing.py` — run/inspect preprocessing outputs and metadata
+- `app/pages/2_Feature_Engineering.py` — review scores, apply overrides, regenerate `X`/`y`
+- `app/pages/3_Model_Selection.py` — kick off training, inspect validation metrics, download artefacts
+- `app/pages/4_Model_Prediction.py` — interactively score new data with the selected model
 
 ---
 
 ## Configuration
-- Preprocess: `config/preprocessing.yml` → points to `pp_clean.yml`, `pp_derive.yml`
+- Macro: `config/macro.yml`
+- Preprocess: `config/preprocessing.yml` → `pp_clean.yml`, `pp_derive.yml`
 - Features: `config/features.yml`
-- Model: `config/model.yml`  
-- Optional: `config/street_coordinates.csv`
-- Shared conventions and schema expectations: COMMON.md
+- Model: `config/model.yml`
+- Optional reference data: `config/street_coordinates.csv`
+- Shared contracts: `docs/COMMON.md`
 
 ---
 
 ## Development Guideline (summary)
-- Each stage runs independently; shared utilities live under `property_adviser/core`.
-- Streamlit pages orchestrate; heavy logic stays in modules.
-- All behaviour is YAML-driven for reproducibility.
-- Follow DEV_GUIDELINES.md for coding standards, review expectations, and agent hand-offs.
+- Stages stay decoupled; shared utils live under `property_adviser/core`.
+- Streamlit triggers module functions; keep heavy logic in package code for reuse by agents.
+- Config-driven design keeps runs reproducible across agents; prefer YAML edits over code forks.
+- Follow `docs/DEV_GUIDELINES.md` for coding standards, review expectations, and agent hand-offs.

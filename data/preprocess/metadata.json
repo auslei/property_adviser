@@ -26,12 +26,26 @@
     "saleYear",
     "saleMonth",
     "saleYearMonth",
-    "propertyCategory",
+    "month_id",
     "saleMonth_sin",
     "saleMonth_cos",
+    "suburb_price_median_current",
+    "count",
+    "std",
+    "suburb_price_median_3m",
+    "suburb_price_median_6m",
+    "suburb_price_median_12m",
+    "suburb_txn_count_3m",
+    "suburb_txn_count_6m",
+    "suburb_txn_count_12m",
+    "suburb_volatility_3m",
+    "suburb_volatility_6m",
+    "suburb_volatility_12m",
+    "suburb_delta_3m",
+    "suburb_delta_12m",
+    "rel_price_vs_suburb_median",
     "propertyAge",
-    "yearMonthMeanPrice",
-    "suburbMonthMedianPrice"
+    "propertyAgeBand"
   ],
   "numeric_columns": [
     "postcode",
@@ -45,11 +59,25 @@
     "saleYear",
     "saleMonth",
     "saleYearMonth",
+    "month_id",
     "saleMonth_sin",
     "saleMonth_cos",
-    "propertyAge",
-    "yearMonthMeanPrice",
-    "suburbMonthMedianPrice"
+    "suburb_price_median_current",
+    "count",
+    "std",
+    "suburb_price_median_3m",
+    "suburb_price_median_6m",
+    "suburb_price_median_12m",
+    "suburb_txn_count_3m",
+    "suburb_txn_count_6m",
+    "suburb_txn_count_12m",
+    "suburb_volatility_3m",
+    "suburb_volatility_6m",
+    "suburb_volatility_12m",
+    "suburb_delta_3m",
+    "suburb_delta_12m",
+    "rel_price_vs_suburb_median",
+    "propertyAge"
   ],
   "categorical_columns": [
     "streetAddress",
@@ -64,8 +92,7 @@
     "ownerType",
     "openInRpdata",
     "sourceFile",
-    "agencyBrand",
-    "propertyCategory"
+    "agencyBrand"
   ],
   "sources": [],
   "configuration": {
@@ -78,6 +105,9 @@
       "config_path": "config/pp_derive.yml",
       "output_path": "data/preprocess/derived.csv",
       "metadata_path": "data/preprocess/metadata.json"
+    },
+    "options": {
+      "verbose": true
     }
   }
 }

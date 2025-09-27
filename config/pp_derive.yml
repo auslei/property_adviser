@@ -1,18 +1,98 @@
-# Canonical AU category from propertyType + landUse
-property_category:
-  enabled: true
-  property_type_col: propertyType
-  land_use_col: landUse
-  output: propertyCategory
-  unknown_value: "Other"
+# pp_derive.yml — Derivations configuration (updated)
+# NOTE: enable/disable any block with `enabled: true/false`
 
-# Year/Month cyclic seasonality
+street:
+  enabled: true
+  source: address
+  output: street
+  drop_unknown: false
+  config:
+    unknown_value: "Unknown"
+
+# 1) Temporal / Market Trend Features
+month_index:
+  enabled: true
+  month_col: saleYearMonth
+  output: month_id
+  offset: 0
+
 month_cyclical:
   enabled: true
   month_col: saleMonth
   out_prefix: saleMonth
 
-# Age at sale
+suburb_time_aggregates:
+  enabled: true
+  suburb_col: suburb
+  month_col: saleYearMonth
+  price_col: salePrice
+  windows: [3, 6, 12]
+  prefix: suburb
+
+# 2) Property Size & Density Ratios
+ratio_land_per_bed:
+  enabled: true
+  fn: ratio
+  numerator: landSize
+  denominator: bed_plus_one   # computed on the fly via expression not supported; set in clean step if needed
+  output: land_per_bed
+  drop_na: true
+
+ratio_floor_per_bed:
+  enabled: true
+  fn: ratio
+  numerator: propertySize
+  denominator: bed_plus_one
+  output: floor_per_bed
+  drop_na: true
+
+ratio_car_per_bed:
+  enabled: true
+  fn: ratio
+  numerator: car
+  denominator: bed_plus_one
+  output: car_per_bed
+  drop_na: true
+
+ratio_bed_bath:
+  enabled: true
+  fn: ratio
+  numerator: bed
+  denominator: bath_plus_one
+  output: bed_bath_ratio
+  drop_na: true
+
+price_per_area_land:
+  enabled: true
+  fn: price_per_area
+  price_col: salePrice
+  area_col: landSize
+  output: price_per_sqm_land
+  clip_min: 0.0
+  drop_na: true
+
+price_per_area_floor:
+  enabled: true
+  fn: price_per_area
+  price_col: salePrice
+  area_col: propertySize
+  output: price_per_sqm_floor
+  clip_min: 0.0
+  drop_na: true
+
+# 3) Relative Pricing
+relative_pricing:
+  enabled: true
+  price_col: salePrice
+  suburb_col: suburb
+  month_col: saleYearMonth
+  suburb_median_col: suburb_price_median_current
+  region_col: region                # optional; comment out if not available
+  street_col: street                # requires 'street' step above
+  min_samples: 5
+  output_prefix: rel
+
+# 4) Age & Vintage
 property_age:
   enabled: true
   year_built_col: yearBuilt
@@ -20,67 +100,8 @@ property_age:
   output: propertyAge
   min_age: 0
 
-# Mean price per (year, month) — your original request
-year_month_mean_price:
+age_bands:
   enabled: true
-  group_by: [saleYear, saleMonth]
-  target: salePrice
-  aggregate: mean
-  output: yearMonthMeanPrice
-
-# Suburb-month median + relative ratio (no external file)
-suburb_month_median_price:
-  enabled: true
-  group_by: [suburb, saleYearMonth]
-  target: salePrice
-  aggregate: median
-  output: suburbMonthMedianPrice
-
-relative_to_suburb_month:
-  enabled: true
-  numerator: salePrice
-  denominator: suburbMonthMedianPrice
-  output: relativeSuburbMedian
-  clip_min: 0.05
-  clip_max: 20
-
-# Ratios & per-area prices (reusable)
-land_floor_ratio:
-  enabled: true
-  numerator: landSizeM2
-  denominator: floorSizeM2
-  output: landFloorRatio
-  clip_min: 0.01
-  clip_max: 200
-
-price_per_area_land:
-  enabled: true
-  price_col: salePrice
-  area_col: landSizeM2
-  output: pricePerSqmLand
-  clip_min: 10
-  clip_max: 100000
-
-price_per_area_floor:
-  enabled: true
-  price_col: salePrice
-  area_col: floorSizeM2
-  output: pricePerSqmFloor
-  clip_min: 100
-  clip_max: 200000
-
-bed_bath_ratio:
-  enabled: true
-  numerator: bed
-  denominator: bath
-  output: bedBathRatio
-  clip_min: 0.1
-  clip_max: 10
-
-car_per_bed:
-  enabled: true
-  numerator: car
-  denominator: bed
-  output: carPerBed
-  clip_min: 0
-  clip_max: 5
+  age_col: propertyAge
+  output: propertyAgeBand
+  bands: [5, 20]   # -> "0–5", "6–20", "21+"
