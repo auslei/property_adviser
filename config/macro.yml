@@ -1,0 +1,19 @@
+# Configuration for Australian macroeconomic data fetcher
+
+# Earliest year to include in the series
+start_year: 1990
+
+# Directory where all macro CSVs will be written
+outdir: data/macro
+
+# Data sources (override here if needed)
+sources:
+  # RBA G1 – Consumer Price Index, Weighted average of 8 capital cities
+  rba_cpi_csv_url: "https://www.rba.gov.au/statistics/tables/csv/g1-data.csv"
+
+  # RBA F1.1 – Cash Rate Target
+  rba_cash_csv_url: "https://www.rba.gov.au/statistics/tables/csv/f1.1-data.csv"
+
+  # Market index ticker (Yahoo Finance)
+  # Use "^AXJO" (ASX200) for post-2000 coverage, or "^AORD" (All Ordinaries) for longer history.
+  asx200_ticker: "^AXJO"

@@ -14,9 +14,7 @@ from property_adviser.core.io import (
     ensure_dir,
 )
 from property_adviser.core.app_logging import log, setup_logging
-
 from property_adviser.feature.compute import compute_feature_scores_from_parquet
-from property_adviser.feature.selector import select_top_features
 
 CONFIG_PATH = "config/features.yml"
 
@@ -56,6 +54,7 @@ def _tidy_scores(scores: dict[str, dict[str, float]]) -> pd.DataFrame:
     metric_cols = ["pearson_abs", "mutual_info", "eta"]
     df["best_score"] = df[metric_cols].max(axis=1, skipna=True)
     df["best_metric"] = df[metric_cols].idxmax(axis=1, skipna=True)
+    
     return df
 
 
@@ -78,6 +77,112 @@ def _apply_overrides(
     feat_set = [f for f in feat_set if f not in set(exclude)]
     return feat_set
 
+import re
+import numpy as np
+
+def _mark_reason(scores_df, feat, reason, selected_flag=None):
+    idx = scores_df.index[scores_df["feature"] == feat]
+    if len(idx):
+        if selected_flag is not None:
+            scores_df.loc[idx, "selected"] = bool(selected_flag)
+        scores_df.loc[idx, "reason"] = reason if scores_df.loc[idx, "reason"].isna().all() else scores_df.loc[idx, "reason"].astype(str) + "; " + reason
+
+def _drop_id_like(df, candidate_cols, scores_df, cfg, include):
+    if not cfg.get("id_like", {}).get("enable", True):
+        return candidate_cols
+    min_ratio = float(cfg["id_like"].get("min_unique_ratio", 0.98))
+    patterns = [re.compile(p, flags=re.IGNORECASE) for p in cfg["id_like"].get("drop_regex", [])]
+    n = len(df)
+    keep = []
+    for c in candidate_cols:
+        if c in include:
+            keep.append(c); continue
+        unique_ratio = (df[c].nunique(dropna=True) / max(n, 1)) if c in df.columns else 0.0
+        name_hit = any(p.search(c) for p in patterns)
+        if unique_ratio >= min_ratio or name_hit:
+            _mark_reason(scores_df, c, f"dropped: id-like (unique_ratio={unique_ratio:.3f})", selected_flag=False)
+        else:
+            keep.append(c)
+    return keep
+
+def _apply_family_rules(candidate_cols, scores_df, cfg, include):
+    families = cfg.get("families", {})
+    if not families:
+        return candidate_cols
+    keep_set = set(candidate_cols)
+    for fam_name, fam_cfg in families.items():
+        fam_cols = fam_cfg.get("columns", [])
+        fam_keep = set(fam_cfg.get("keep", []))
+        present = [c for c in fam_cols if c in keep_set]
+        if len(present) <= 1:
+            continue
+        # protect manual include
+        protected = [c for c in present if c in include]
+        if protected:
+            chosen = set(protected)
+        elif fam_keep:
+            chosen = fam_keep & keep_set
+            if not chosen:
+                # if preferred not present, keep the first present
+                chosen = {present[0]}
+        else:
+            chosen = {present[0]}
+        for c in present:
+            if c not in chosen:
+                keep_set.discard(c)
+                _mark_reason(scores_df, c, f"dropped: family({fam_name}) -> keep {sorted(chosen)}", selected_flag=False)
+        for c in chosen:
+            _mark_reason(scores_df, c, f"kept: family({fam_name})", selected_flag=True)
+    return [c for c in candidate_cols if c in keep_set]
+
+def _prune_correlated(df, candidate_cols, scores_df, cfg, include, best_score_map):
+    red_cfg = cfg.get("redundancy", {})
+    if not red_cfg.get("enable", True):
+        return candidate_cols
+    thr = float(red_cfg.get("threshold", 0.95))
+    prefer_keep = set(red_cfg.get("prefer_keep", []))
+
+    # numeric-only for correlation
+    cols = [c for c in candidate_cols if c in df.columns]
+    num_cols = [c for c in cols if np.issubdtype(df[c].dropna().infer_objects().dtype, np.number)]
+    if len(num_cols) <= 1:
+        return candidate_cols
+
+    corr = df[num_cols].corr().abs()
+    to_drop = set()
+    kept = set(num_cols)
+
+    # iterate upper triangle
+    for i, c1 in enumerate(num_cols):
+        if c1 not in kept: continue
+        for c2 in num_cols[i+1:]:
+            if c2 not in kept: continue
+            r = corr.loc[c1, c2]
+            if np.isnan(r) or r < thr:
+                continue
+            # decide which to drop
+            if c1 in include and c2 not in include:
+                drop = c2
+            elif c2 in include and c1 not in include:
+                drop = c1
+            elif c1 in prefer_keep and c2 not in prefer_keep:
+                drop = c2
+            elif c2 in prefer_keep and c1 not in prefer_keep:
+                drop = c1
+            else:
+                # drop the lower best_score
+                s1 = best_score_map.get(c1, -np.inf)
+                s2 = best_score_map.get(c2, -np.inf)
+                drop = c1 if s1 < s2 else c2
+            if drop in kept:
+                kept.remove(drop)
+                to_drop.add((drop, (c1 if drop==c2 else c2), r))
+
+    final = [c for c in candidate_cols if (c not in [d[0] for d in to_drop])]
+    for dcol, keeper, r in to_drop:
+        _mark_reason(scores_df, dcol, f"dropped: high correlation with {keeper} (r={r:.3f})", selected_flag=False)
+        _mark_reason(scores_df, keeper, f"kept over {dcol} (r={r:.3f})", selected_flag=True)
+    return final
 
 def run_feature_selection(
     cfg: Dict[str, Any],
@@ -103,74 +208,68 @@ def run_feature_selection(
     include = include or []
     exclude = exclude or []
 
-    # 1) Compute scores (uses cfg['input_file'] etc.)
+    # 1) Compute scores and tidy
     raw_scores = compute_feature_scores_from_parquet(config=cfg)
-    scores_df = _tidy_scores(raw_scores)
+    scores_df = _tidy_scores(raw_scores)          # builds pearson_abs/mutual_info/eta
 
-    # 2) Threshold selection via selector (this already picks "best" metric per feature)
+    # 2) Load DF here so guardrails can use it
+    df = load_parquet_or_csv(Path(cfg["input_file"]))
+    target_col = cfg["target"]
+
+    # 3) Initial selection: threshold OR top-k
     threshold = float(cfg["correlation_threshold"])
-    # After scores_df is built (and MI normalised), select by best_score
-    metric_cols = ["pearson_abs", "mutual_info", "eta"]
-    scores_df["best_score"] = scores_df[metric_cols].max(axis=1, skipna=True)
-    scores_df["best_metric"] = scores_df[metric_cols].idxmax(axis=1, skipna=True)
-
-    selected_cols_threshold = (
+    # threshold mode from scores_df (now that MI is normalised)
+    selected_cols = (
         scores_df.loc[scores_df["best_score"].fillna(-1) >= threshold, "feature"]
         .tolist()
     )
-    # 3) Optional top_k decision
-    cfg_top_k = cfg.get("top_k")
-    if use_top_k is None:
-        # follow config: use top_k if present
-        effective_use_top_k = cfg_top_k is not None
-    else:
-        effective_use_top_k = bool(use_top_k)
 
-    effective_top_k = int(top_k if top_k is not None else (cfg_top_k if cfg_top_k is not None else 0))
+    cfg_top_k = cfg.get("top_k")
+    effective_use_top_k = (use_top_k if use_top_k is not None else cfg_top_k is not None)
+    effective_top_k = int(top_k if top_k is not None else (cfg_top_k or 0))
 
     if effective_use_top_k and effective_top_k > 0:
-        # rank by best_score
         ranked = scores_df.sort_values("best_score", ascending=False, na_position="last")
-        topk_cols = ranked["feature"].head(effective_top_k).tolist()
-        selected_cols = topk_cols
-        topk_rank_map = {f: i + 1 for i, f in enumerate(topk_cols)}
+        selected_cols = ranked["feature"].head(effective_top_k).tolist()
+        topk_rank_map = {f: i + 1 for i, f in enumerate(selected_cols)}
     else:
-        selected_cols = selected_cols_threshold
         topk_rank_map = {}
 
     # 4) Apply manual GUI overrides
     selected_cols = _apply_overrides(selected_cols, include=include, exclude=exclude)
 
-    # 5) Build selection flags & reasons on the full table
-    sel_set = set(selected_cols)
-    scores_df["selected"] = scores_df["feature"].isin(sel_set)
+    # 5) Init selection flags/reasons BEFORE guardrails
+    if "reason" not in scores_df.columns:
+        scores_df["reason"] = pd.NA
+    scores_df["selected"] = scores_df["feature"].isin(set(selected_cols))
 
-    def _reason(row) -> str:
-        f = row["feature"]
-        if f in include:
-            return "manual include"
-        if f in exclude:
-            return "manual exclude (not selected)"
-        if f in sel_set:
-            if f in topk_rank_map:
-                return f"top_k rank {topk_rank_map[f]}/{effective_top_k}"
-            # threshold reason by best metric
-            m = row["best_metric"]
-            s = row["best_score"]
-            if pd.isna(s) or pd.isna(m):
-                return "selected (no score reason available)"
-            return f"{m} {s:.4f} >= {threshold}"
-        # not selected
-        return ""
-    scores_df["reason"] = scores_df.apply(_reason, axis=1)
+    # Manual include/exclude reasons
+    for f in (include or []):
+        _mark_reason(scores_df, f, "manual include", selected_flag=True)
+    for f in (exclude or []):
+        _mark_reason(scores_df, f, "manual exclude (not selected)", selected_flag=False)
 
-    # 6) X / y for downstream steps (and GUI use)
-    df = load_parquet_or_csv(Path(cfg["input_file"]))
-    target_col = cfg["target"]
+    # Top-k reasons (if used)
+    for f, rank in (topk_rank_map or {}).items():
+        _mark_reason(scores_df, f, f"top_k rank {rank}/{len(topk_rank_map)}", selected_flag=True)
+    
+    # baseline flags before guardrails
+    scores_df["selected"] = scores_df["feature"].isin(set(selected_cols))
 
-    # Keep only features that exist in the dataframe
+
+    # Helper for redundancy tiebreaks
+    best_score_map = dict(zip(scores_df["feature"], scores_df["best_score"]))
+
+    # 6) Guardrails that REQUIRE DF
+    selected_cols = _drop_id_like(df, selected_cols, scores_df, cfg, include or [])
+    selected_cols = _apply_family_rules(selected_cols, scores_df, cfg, include or [])
+    selected_cols = _prune_correlated(df, selected_cols, scores_df, cfg, include or [], best_score_map)
+
+    # 7) Refresh final flags after guardrails
+    scores_df["selected"] = scores_df["feature"].isin(set(selected_cols))
+
+    # Build X / y (ensure we don’t include target by accident)
     selected_cols = [c for c in selected_cols if c in df.columns and c != target_col]
-
     X = df[selected_cols]
     y = df[target_col] if target_col in df else df[[target_col]]
 

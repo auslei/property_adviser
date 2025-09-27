@@ -6,6 +6,30 @@ exclude_columns:
   - streetAddress
   - sourceFile
   - openInRpdata
-mi_random_state: 7
-
+  - parcelDetail
+mi_random_state: 7 
 #top_k: 10   # optional; if present, used instead of correlation_threshold
+
+id_like:
+  enable: true
+  min_unique_ratio: 0.98     # drop columns where nunique / n_rows >= 0.98
+  drop_regex:
+    - "_id$"
+    - "^id$"
+    - "^parcel"
+    - "uuid"
+    - "guid"
+
+redundancy:
+  enable: true
+  method: correlation        # [correlation]
+  threshold: 0.95            # drop one of any pair with |r| >= 0.95
+  prefer_keep:               # if a pair clashes, keep the one listed here
+    - saleYearMonth
+    - saleYear
+    - saleMonth
+
+families:                    # enforce “keep only one” inside each family
+  sale_date:
+    columns: [saleDate, saleYear, saleMonth, saleYearMonth]
+    keep: [saleYearMonth]    # columns to keep inside the family (others dropped)

@@ -19,9 +19,13 @@ property_adviser/
   - `output_dir`: where outputs are written
   - `target`: target column name
   - `correlation_threshold`: numeric threshold (applied to best_score)
-  - `exclude_columns`: columns to ignore
+  - `exclude_columns`: columns to always ignore (e.g. IDs such as `parcelDetail`, addresses)
   - `mi_random_state`: random seed for MI estimation
   - `top_k`: (optional) if present, top-k selection mode is enabled
+
+> **Tip:** Use `exclude_columns` for dropping ID-like fields (unique identifiers such as `parcelDetail`, `streetAddress`, etc.).
+> These columns won’t be scored or considered for selection, and their exclusion reason will be recorded as
+> `manual exclude (not selected)` in the scores file.
 
 ### Methods
 - **Metrics per feature**:
