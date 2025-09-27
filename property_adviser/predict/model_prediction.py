@@ -25,7 +25,15 @@ def load_trained_model() -> tuple:
     if not metadata_path.exists():
         raise FileNotFoundError("Feature metadata not found. Run feature selection first.")
     
-    model = joblib.load(model_path)
+    bundle = joblib.load(model_path)
+    if isinstance(bundle, dict):
+        if "model" not in bundle or not hasattr(bundle["model"], "predict"):
+            raise ValueError(
+                "Model bundle is missing a usable 'model' object. Did training finish successfully?"
+            )
+        model = bundle["model"]
+    else:
+        model = bundle
     metadata = json.loads(metadata_path.read_text())
     
     return model, metadata
