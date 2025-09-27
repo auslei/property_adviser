@@ -2,7 +2,7 @@
 
 ### Overview
 End-to-end pipeline for forecasting property sale prices from suburb-level CSVs.
-The workflow is modular and agent-friendly: **Macro data → Preprocessing → Feature selection → Training → Prediction**, with a Streamlit UI for interactive runs.
+The workflow is modular and agent-friendly: **Macro data → Preprocessing → Feature selection → Training → Prediction**.
 
 ---
 
@@ -14,8 +14,9 @@ The workflow is modular and agent-friendly: **Macro data → Preprocessing → F
 - `models` – persisted models, score summaries
 - `config` – YAMLs for every stage (`macro.yml`, `preprocessing.yml`, `pp_clean.yml`, `pp_derive.yml`, `features.yml`, `model.yml`)
 - `property_adviser/` – core Python package (`core`, `macro`, `preprocess`, `feature`, `train`, `predict`)
-- `app/` – Streamlit UI entrypoint and pages
 - `docs/` – deep-dive module notes (Macro, Preprocess, Feature selection, Training, etc.)
+
+> Note: the legacy Streamlit UI has been retired; use the CLI entry points or build your own presentation layer on top of the core package.
 
 ---
 
@@ -64,6 +65,7 @@ uv run pa-train --config config/model.yml --verbose
 Consumes the selected features, honours manual overrides from the scores table, and performs a month-based train/validation split. Each enabled estimator runs through a GridSearchCV pipeline (with automatic preprocessing). Optional `log_target: true` trains on log(price) and back-transforms predictions. Artefacts are timestamped under `models/`:
 - `best_model_<model>_<timestamp>.joblib`
 - `model_scores_<timestamp>.csv`
+- `feature_metadata.json`
 Refer to `docs/TRAINING.md` for split rules, supported models, and extension points.
 
 ### 4) Prediction
@@ -74,22 +76,11 @@ Loads the persisted pipeline and scores new rows (outside this README’s scope)
 
 ---
 
-## Streamlit
-```bash
-streamlit run app/Overview.py
-```
-- Inspect raw vs cleaned datasets and metadata
-- Run feature selection with interactive overrides (include/exclude, top-k)
-- Trigger model training, review validation metrics, download artefacts
-- Score new property listings with the selected model
-
----
-
 ## Generated Artefacts (summary)
 - **Macro**: `cpi_quarterly.csv`, `cpi_annual_*.csv`, `rba_cash_*.csv`, `asx200_yearly.csv`, `macro_au_annual.csv`
 - **Preprocess**: `cleaned.csv`, `derived.csv`, `metadata.json`, optional `dropped_rows` parquet
 - **Feature selection**: `feature_scores.parquet`, `X.csv`, `y.csv`, `training.csv`, `selected_features.txt`
-- **Training**: timestamped `best_model_*.joblib`, `model_scores_*.csv`
+- **Training**: timestamped `best_model_*.joblib`, `model_scores_*.csv`, `feature_metadata.json`
 
 ---
 
@@ -98,6 +89,7 @@ streamlit run app/Overview.py
 - `docs/PREPROCESS_MODULE.md` — cleaning + derivation details
 - `docs/FEATURE_SELECTION.md` — scoring, guardrails, and overrides
 - `docs/TRAINING.md` — model orchestration and artefact schema
+- `docs/PREDICT.md` — runtime prediction helpers and metadata contract
 - `docs/COMMON.md` — shared conventions, schema expectations, glossary
 - `docs/DEV_GUIDELINES.md` — coding standards and agent workflows
 - `docs/AGENTS.md` — agent-facing walkthrough of the pipeline and UI

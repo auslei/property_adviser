@@ -52,11 +52,11 @@ The derivation step engineers additional predictors from cleaned fields. Key gro
 ### CLI (`preprocess/cli.py`)
 - Orchestrates cleaning + derivation from `config/preprocessing.yml`.
 - Writes:
-  - `data_preprocess/cleaned.parquet`
-  - `data_preprocess/derived.parquet`
-  - `data_preprocess/metadata.json`
+  - `data/preprocess/cleaned.csv` (extension follows config)
+  - `data/preprocess/derived.csv`
+  - `data/preprocess/metadata.json`
 - **Downstream contract**:
-  - Feature selection reads **derived.parquet** and the target listed in `config/features.yml`.
+  - Feature selection reads the derived dataset (CSV or Parquet) and the target listed in `config/features.yml`.
 
 ### Notes for Feature Selection (handover)
 - Derived dataset should contain:

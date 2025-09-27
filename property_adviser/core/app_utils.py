@@ -5,32 +5,26 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import pandas as pd
-import streamlit as st
 
+from property_adviser.core.config import load_config
+from property_adviser.core.paths import (
+    DATA_DIR,
+    FEATURE_ENGINEERING_CONFIG_PATH,
+    MODEL_CONFIG_PATH,
+    MODELS_DIR,
+    PREPROCESS_CONFIG_PATH,
+    PREPROCESS_DIR,
+    PROJECT_ROOT,
+    STREET_COORDS_PATH,
+    TRAINING_DIR,
+)
+from property_adviser.core.io import load_parquet_or_csv
 
-
-# Set PROJECT_ROOT to the repository root directory
-PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Go up two levels from src/common/
+# Ensure repository root is importable for legacy notebooks or interactive shells.
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 
-# Fallback when an older src.config is imported (e.g. cached Streamlit session).
-DATA_DIR = PROJECT_ROOT / "data"
-PREPROCESS_DIR = PROJECT_ROOT / "data_preprocess"
-TRAINING_DIR = PROJECT_ROOT / "data_training"
-MODELS_DIR = PROJECT_ROOT / "models"
-CONFIG_DIR = PROJECT_ROOT / "config"
-PREPROCESS_CONFIG_PATH = CONFIG_DIR / "preprocessing.yml"
-FEATURE_ENGINEERING_CONFIG_PATH = CONFIG_DIR / "features.yml"
-MODEL_CONFIG_PATH = CONFIG_DIR / "model.yml"
-STREET_COORDS_PATH = CONFIG_DIR / "street_coordinates.csv"
-
-
-from property_adviser.common.config import load_config
-
-
-@st.cache_resource
 def load_model_resources() -> Tuple[Dict[str, Any], object, Dict[str, Any]]:
     metadata_path = TRAINING_DIR / "feature_metadata.json"
     if not metadata_path.exists():
@@ -39,7 +33,11 @@ def load_model_resources() -> Tuple[Dict[str, Any], object, Dict[str, Any]]:
         )
     metadata = json.loads(metadata_path.read_text())
 
-    model_path = MODELS_DIR / "best_model.pkl"
+    model_candidates = [
+        MODELS_DIR / "best_model.joblib",
+        MODELS_DIR / "best_model.pkl",
+    ]
+    model_path = next((p for p in model_candidates if p.exists()), model_candidates[0])
     if not model_path.exists():
         raise FileNotFoundError(
             "Trained model missing. Run model training first."
@@ -52,30 +50,25 @@ def load_model_resources() -> Tuple[Dict[str, Any], object, Dict[str, Any]]:
     return metadata, model, model_summary
 
 
-@st.cache_resource
 def load_median_artifacts():
-    """
-    Load median artifacts for the Streamlit app.
-    
-    This simplified version returns only the history since the ML forecasting model
-    has been eliminated. Returns a compatible tuple interface:
-    (history, None, {}) where None represents the eliminated model.
-    """
+    """Load legacy median artefacts (preserved for compatibility with older tooling)."""
     # Since we removed the suburb median module, we just return
     # a compatible interface with None values
     # The median is now calculated directly in preprocessing
     return None, None, {}
 
-@st.cache_data
 def load_cleaned_data() -> pd.DataFrame:
-    data_path = PREPROCESS_DIR / "derived.parquet"
+    candidates = [
+        PREPROCESS_DIR / "derived.parquet",
+        PREPROCESS_DIR / "derived.csv",
+    ]
+    data_path = next((p for p in candidates if p.exists()), candidates[0])
     if not data_path.exists():
         raise FileNotFoundError(
-            f"Preprocessed data missing ({data_path}). Run preprocessing before viewing analytics."
+            f"Preprocessed data missing ({PREPROCESS_DIR}). Run preprocessing before viewing analytics."
         )
-    return pd.read_parquet(data_path)
+    return load_parquet_or_csv(data_path)
 
-@st.cache_data
 def load_preprocess_metadata() -> Dict[str, Any]:
     metadata_path = PREPROCESS_DIR / "metadata.json"
     if not metadata_path.exists():
@@ -83,25 +76,31 @@ def load_preprocess_metadata() -> Dict[str, Any]:
     return json.loads(metadata_path.read_text())
 
 
-@st.cache_data
 def load_training_sets() -> Tuple[pd.DataFrame, pd.Series, Dict[str, Any]]:
-    X_path = TRAINING_DIR / "X.parquet"
-    y_path = TRAINING_DIR / "y.parquet"
+    X_candidates = [
+        TRAINING_DIR / "X.parquet",
+        TRAINING_DIR / "X.csv",
+    ]
+    y_candidates = [
+        TRAINING_DIR / "y.parquet",
+        TRAINING_DIR / "y.csv",
+    ]
+    X_path = next((p for p in X_candidates if p.exists()), X_candidates[0])
+    y_path = next((p for p in y_candidates if p.exists()), y_candidates[0])
     metadata_path = TRAINING_DIR / "feature_metadata.json"
 
     if not X_path.exists() or not y_path.exists() or not metadata_path.exists():
         raise FileNotFoundError(
-            "Training features not found. Run feature selection to generate X/y parquet files."
+            "Training features not found. Run feature selection to generate X/y data files."
         )
 
-    X = pd.read_parquet(X_path)
-    y_df = pd.read_parquet(y_path)
+    X = load_parquet_or_csv(X_path)
+    y_df = load_parquet_or_csv(y_path)
     metadata = json.loads(metadata_path.read_text())
     target_col = metadata["target"]
     return X, y_df[target_col], metadata
 
 
-@st.cache_data
 def load_feature_importances() -> pd.DataFrame:
     path = TRAINING_DIR / "feature_importances.json"
     if not path.exists():
@@ -112,7 +111,6 @@ def load_feature_importances() -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
-@st.cache_data
 def load_model_metrics() -> pd.DataFrame:
     path = MODELS_DIR / "model_metrics.json"
     if not path.exists():
@@ -123,7 +121,6 @@ def load_model_metrics() -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
-@st.cache_data
 def load_street_coordinates() -> pd.DataFrame:
     path = STREET_COORDS_PATH
     if not path.exists():

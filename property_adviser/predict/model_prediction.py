@@ -6,14 +6,18 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from .config import MODELS_DIR, TRAINING_DIR
+from property_adviser.config import MODELS_DIR, TRAINING_DIR
 
 
 def load_trained_model() -> tuple:
     """
     Load the trained model, its metadata and feature information
     """
-    model_path = MODELS_DIR / "best_model.pkl"
+    model_candidates = [
+        MODELS_DIR / "best_model.joblib",
+        MODELS_DIR / "best_model.pkl",
+    ]
+    model_path = next((p for p in model_candidates if p.exists()), model_candidates[0])
     if not model_path.exists():
         raise FileNotFoundError("Trained model not found. Run model training first.")
     
@@ -30,46 +34,128 @@ def load_trained_model() -> tuple:
 def _prepare_prediction_data(
     properties: List[Dict[str, Any]], metadata: Dict[str, Any]
 ) -> pd.DataFrame:
-    """Prepares a DataFrame for prediction from a list of property dictionaries."""
-    input_data = pd.DataFrame(properties)
+    """Prepare model-ready features from minimal property descriptors."""
+    if not properties:
+        raise ValueError("At least one property must be provided for prediction")
 
-    # Ensure we have the right columns based on training metadata
-    selected_features = metadata.get("selected_features", [])
+    feature_metadata = metadata.get("feature_metadata") or {}
+    model_columns: List[str] = feature_metadata.get("model_input_columns") or metadata.get("selected_features", [])
+    if not model_columns:
+        raise ValueError("Feature metadata is missing required model column information")
 
-    # Add missing columns with default values if needed
-    for feature in selected_features:
-        if feature not in input_data.columns:
-            if feature in ["saleYear", "saleMonth"]:
-                # If we have yearmonth, we can derive these
-                if "yearmonth" in input_data.columns:
-                    input_data["saleYear"] = input_data["yearmonth"] // 100
-                    input_data["saleMonth"] = input_data["yearmonth"] % 100
-                else:
-                    input_data[feature] = 0  # Default value
-            elif feature in metadata.get("numeric_features", []):
-                input_data[feature] = 0  # Default numeric value
-            elif feature in metadata.get("categorical_features", []):
-                input_data[feature] = "Unknown"  # Default categorical value
-            else:
-                input_data[feature] = 0  # Default fallback
+    numeric_features: List[str] = feature_metadata.get("numeric_features", metadata.get("numeric_features", []))
+    categorical_features: List[str] = feature_metadata.get("categorical_features", metadata.get("categorical_features", []))
 
-    # Filter to only include features used in training
-    return input_data[selected_features]
+    impute_numeric: Dict[str, Any] = (feature_metadata.get("impute", {}).get("numeric")
+                                      or metadata.get("impute", {}).get("numeric")
+                                      or {})
+    impute_categorical: Dict[str, Any] = (feature_metadata.get("impute", {}).get("categorical")
+                                          or metadata.get("impute", {}).get("categorical")
+                                          or {})
+
+    df = pd.DataFrame(properties)
+
+    # Normalise expected column names
+    rename_map = {
+        "yearmonth": "saleYearMonth",
+        "landSize": "landSizeM2",
+        "floorSize": "floorSizeM2",
+        "yearBuild": "yearBuilt",
+        "yearbuild": "yearBuilt",
+    }
+    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+
+    # Ensure saleYearMonth is present and numeric
+    if "saleYearMonth" not in df.columns:
+        raise ValueError("'saleYearMonth' is required for prediction inputs")
+    df["saleYearMonth"] = pd.to_numeric(df["saleYearMonth"], errors="coerce")
+
+    # Fill known numeric identifiers before derivations
+    if "yearBuilt" not in df.columns:
+        df["yearBuilt"] = np.nan
+    if "yearBuilt" in impute_numeric:
+        df["yearBuilt"] = df["yearBuilt"].fillna(impute_numeric["yearBuilt"])
+
+    # Derive temporal components
+    sale_year = (df["saleYearMonth"] // 100).astype("Int64")
+    sale_month = (df["saleYearMonth"] % 100).astype("Int64")
+    if "saleYear" in model_columns:
+        df["saleYear"] = sale_year
+    if "saleMonth" in model_columns:
+        df["saleMonth"] = sale_month
+
+    # Property age features
+    if {"propertyAge", "propertyAgeBand"}.intersection(model_columns):
+        property_age = sale_year.astype("Float64") - pd.to_numeric(df.get("yearBuilt"), errors="coerce")
+        property_age = property_age.where(property_age >= 0)
+        df["propertyAge"] = property_age
+
+        if "propertyAgeBand" in model_columns:
+            age_meta = feature_metadata.get("property_age", {})
+            bands = age_meta.get("bands", [5, 20])
+            labels = age_meta.get("labels", ["0-5", "6-20", "21+"])
+            bins = [-np.inf] + list(bands) + [np.inf]
+            df["propertyAgeBand"] = pd.cut(df["propertyAge"], bins=bins, labels=labels)
+
+    # Align optional numeric columns
+    if "landSizeM2" in df.columns:
+        df["landSizeM2"] = pd.to_numeric(df["landSizeM2"], errors="coerce")
+    if "floorSizeM2" in df.columns:
+        df["floorSizeM2"] = pd.to_numeric(df["floorSizeM2"], errors="coerce")
+
+    # Build the model-ready frame
+    prepared = pd.DataFrame(index=df.index, columns=model_columns)
+    for column in model_columns:
+        if column in df.columns:
+            prepared[column] = df[column]
+        elif column in impute_numeric:
+            prepared[column] = impute_numeric[column]
+        elif column in impute_categorical:
+            prepared[column] = impute_categorical[column]
+        else:
+            prepared[column] = np.nan
+
+    # Enforce dtypes
+    for column in numeric_features:
+        if column in prepared.columns:
+            prepared[column] = pd.to_numeric(prepared[column], errors="coerce")
+
+    for column in categorical_features:
+        if column in prepared.columns:
+            prepared[column] = prepared[column].astype("object")
+
+    # Final imputation fallback
+    for column, value in impute_numeric.items():
+        if column in prepared.columns:
+            prepared[column] = prepared[column].fillna(value)
+
+    for column, value in impute_categorical.items():
+        if column in prepared.columns:
+            prepared[column] = prepared[column].fillna(value)
+
+    # Ensure categorical bands become plain strings
+    if "propertyAgeBand" in prepared.columns:
+        prepared["propertyAgeBand"] = prepared["propertyAgeBand"].astype(str).replace({"nan": np.nan})
+        prepared["propertyAgeBand"] = prepared["propertyAgeBand"].fillna(impute_categorical.get("propertyAgeBand", "Unknown"))
+
+    return prepared
 
 
 def predict_property_price(
     yearmonth: int,
     bed: int,
-    bath: int, 
+    bath: int,
     car: int,
     property_type: str,
     street: str,
+    *,
+    land_size: Optional[float] = None,
+    floor_size: Optional[float] = None,
+    year_built: Optional[int] = None,
     model: Optional[Any] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> float:
-    """
-    Predict property price based on the given features using the trained model
-    """
+    """Predict sale price for a single property using the trained model."""
     if model is None or metadata is None:
         model, metadata = load_trained_model()
     
@@ -81,6 +167,9 @@ def predict_property_price(
             "car": car,
             "propertyType": property_type,
             "street": street,
+            "landSize": land_size,
+            "floorSize": floor_size,
+            "yearBuild": year_built,
         }
     ]
     input_data = _prepare_prediction_data(properties, metadata)
@@ -96,7 +185,9 @@ def predict_property_prices_batch(
     properties: List[Dict[str, Any]]
 ) -> List[float]:
     """
-    Predict property prices for multiple properties at once
+    Predict property prices for multiple properties at once. Each dictionary should
+    contain at minimum: `saleYearMonth`, `bed`, `bath`, `car`, `propertyType`, and
+    may optionally include `street`, `landSize`, `floorSize`, `yearBuild`.
     """
     model, metadata = load_trained_model()
     
@@ -116,6 +207,10 @@ def predict_with_confidence_interval(
     car: int,
     property_type: str,
     street: str,
+    *,
+    land_size: Optional[float] = None,
+    floor_size: Optional[float] = None,
+    year_built: Optional[int] = None,
     confidence_level: float = 0.95
 ) -> Dict[str, float]:
     """
@@ -140,7 +235,17 @@ def predict_with_confidence_interval(
     
     # Make the primary prediction
     predicted_price = predict_property_price(
-        yearmonth, bed, bath, car, property_type, street, model, metadata
+        yearmonth,
+        bed,
+        bath,
+        car,
+        property_type,
+        street,
+        land_size=land_size,
+        floor_size=floor_size,
+        year_built=year_built,
+        model=model,
+        metadata=metadata,
     )
     
     # Calculate confidence interval (simplified approach)

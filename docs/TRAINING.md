@@ -68,8 +68,12 @@ property_adviser/
    - `best_model_<name>_<timestamp>.joblib`: serialized dict containing the fitted
      pipeline, metadata (target, month column, validation month, feature lists,
      best params, models tried).
+   - `best_model.joblib` + `best_model.json`: canonical copies for downstream
+     prediction services (JSON includes summary metrics, params, and the timestamped path).
    - `model_scores_<timestamp>.csv`: validation metrics and CV scores for each
      candidate (`train.save_scores`).
+   - `feature_metadata.json`: feature lists and simple imputation defaults used by
+     the prediction utilities.
 10. Return a dictionary usable by the GUI: best model name/path, scores path,
     validation month, and full score table.
 

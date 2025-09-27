@@ -1,23 +1,18 @@
 target: salePrice
 log_target: true
 
-input: 
+input:
   path: data/training
-  X: X.parquet
-  y: y.parquet
-  feature_scores: feature_scores.csv
+  X: X.csv
+  y: y.csv
+  feature_scores: feature_scores.parquet
 
 model_path:
-  base: ./models
-  timestamped: true
+  base: models
 
 split:
-  test_size: 0.2
-  random_state: 42
-
-manual_feature_adjustments:
-  include: []     # e.g., ["medianPrice_suburb_3m"]
-  exclude: []     # e.g., ["street"]   # if you decide to drop it
+  month_column: saleYearMonth
+  validation_month: null  # optional; defaults to latest month present in X
 
 models:
   LinearRegression:
@@ -27,19 +22,19 @@ models:
   Ridge:
     enabled: true
     grid:
-      alpha: [0.01, 0.1, 1.0, 10.0]   # regularisation strength
+      alpha: [0.01, 0.1, 1.0, 10.0]
 
   ElasticNet:
     enabled: true
     grid:
-      alpha: [0.01, 0.1, 1.0]      # regularisation strength
-      l1_ratio: [0.1, 0.5, 0.9]    # 0 = Ridge, 1 = Lasso
+      alpha: [0.01, 0.1, 1.0]
+      l1_ratio: [0.1, 0.5, 0.9]
 
   Lasso:
     enabled: true
     grid:
-      alpha: [0.001, 0.01, 0.1, 1.0]  # regularisation strength
-      
+      alpha: [0.001, 0.01, 0.1, 1.0]
+
   RandomForestRegressor:
     enabled: true
     grid:
@@ -47,7 +42,8 @@ models:
       max_depth: [null, 20, 30]
       min_samples_split: [2, 5]
       min_samples_leaf: [1, 2, 4]
-      max_features: ['sqrt', 0.5]
+      max_features: ["sqrt", 0.5]
+
   GradientBoostingRegressor:
     enabled: true
     grid:

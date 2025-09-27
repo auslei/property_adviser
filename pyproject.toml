@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "property-adviser"
 version = "0.1.0"
-description = "Property Adviser ML pipeline and Streamlit app"
+description = "Property Adviser ML pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,7 +13,6 @@ dependencies = [
   "numpy",
   "scikit-learn",
   "pyyaml",
-  "streamlit",
   "pyarrow",
   "matplotlib",
   "seaborn",

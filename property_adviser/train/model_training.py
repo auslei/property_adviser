@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -210,6 +211,76 @@ def load_train_cfg(config_path: Optional[Path] = None, overrides: Optional[Dict[
     )
 
 
+def _build_feature_metadata(
+    *,
+    X_full: pd.DataFrame,
+    month_column: str,
+    model_numeric_features: List[str],
+    model_categorical_features: List[str],
+    model_input_columns: List[str],
+    timestamp: str,
+) -> Dict[str, Any]:
+    """Capture column lists and simple imputations for downstream prediction."""
+
+    def _median(series: pd.Series) -> Optional[float]:
+        numeric = pd.to_numeric(series, errors="coerce")
+        value = numeric.median(skipna=True)
+        if pd.isna(value):
+            return None
+        return float(value)
+
+    def _mode(series: pd.Series) -> Optional[str]:
+        clean = series.dropna()
+        if clean.empty:
+            return None
+        mode_series = clean.mode(dropna=True)
+        if mode_series.empty:
+            return None
+        return str(mode_series.iloc[0])
+
+    numeric_impute: Dict[str, Optional[float]] = {}
+    categorical_impute: Dict[str, Optional[str]] = {}
+
+    for col in model_numeric_features:
+        if col in X_full.columns:
+            numeric_impute[col] = _median(X_full[col])
+        else:
+            numeric_impute[col] = None
+
+    for col in model_categorical_features:
+        if col in X_full.columns:
+            categorical_impute[col] = _mode(X_full[col])
+        else:
+            categorical_impute[col] = None
+
+    # Default fallbacks for missing imputation values
+    for col, value in list(numeric_impute.items()):
+        if value is None:
+            numeric_impute[col] = 0.0
+
+    for col, value in list(categorical_impute.items()):
+        if value is None:
+            categorical_impute[col] = "Unknown"
+
+    metadata: Dict[str, Any] = {
+        "timestamp": timestamp,
+        "month_column": month_column,
+        "raw_feature_columns": sorted(X_full.columns.tolist()),
+        "model_input_columns": model_input_columns,
+        "numeric_features": model_numeric_features,
+        "categorical_features": model_categorical_features,
+        "impute": {
+            "numeric": numeric_impute,
+            "categorical": categorical_impute,
+        },
+        "property_age": {
+            "bands": [5, 20],
+            "labels": ["0-5", "6-20", "21+"],
+        },
+    }
+    return metadata
+
+
 def _apply_feature_overrides(X: pd.DataFrame, feature_scores: Optional[pd.DataFrame]) -> pd.DataFrame:
     """
     If feature_scores contains selected flags or include/exclude info, apply it.
@@ -391,6 +462,16 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
         _ensure_dir(cfg.paths.artifacts_dir)
         ts = _timestamp()
 
+        # Capture metadata for downstream prediction (use full feature frame for imputation stats)
+        prediction_metadata = _build_feature_metadata(
+            X_full=X_effective,
+            month_column=cfg.split.month_column,
+            model_numeric_features=num_cols,
+            model_categorical_features=cat_cols,
+            model_input_columns=X_tr.columns.tolist(),
+            timestamp=ts,
+        )
+
         best_name = None
         best_score = -np.inf
         best_bundle = None
@@ -449,8 +530,7 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
             raise RuntimeError("No model was successfully trained/evaluated.")
 
         # Save artifacts (timestamped)
-        model_path = cfg.paths.artifacts_dir / f"best_model_{best_name}_{ts}.joblib"
-        joblib.dump({
+        bundle = {
             "model": best_bundle,
             "target": cfg.target,
             "month_column": cfg.split.month_column,
@@ -460,8 +540,33 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
             "best_params": best_params,
             "models_tried": [r["model"] for r in results],
             "log_target": cfg.log_target,
-        }, model_path)
+        }
+
+        model_path = cfg.paths.artifacts_dir / f"best_model_{best_name}_{ts}.joblib"
+        joblib.dump(bundle, model_path)
         log("train.save_model", path=str(model_path), model=best_name, r2=best_score)
+
+        canonical_model_path = cfg.paths.artifacts_dir / "best_model.joblib"
+        joblib.dump(bundle, canonical_model_path)
+
+        best_metrics = next((r for r in results if r["model"] == best_name), None)
+        summary = {
+            "model": best_name,
+            "timestamp": ts,
+            "validation_month": val_month,
+            "metrics": best_metrics if best_metrics else {},
+            "best_params": best_params,
+            "timestamped_model_path": str(model_path),
+            "models_tried": [r["model"] for r in results],
+            "log_target": cfg.log_target,
+        }
+        summary_path = cfg.paths.artifacts_dir / "best_model.json"
+        summary_path.write_text(json.dumps(summary, indent=2))
+        log(
+            "train.save_model_canonical",
+            model=str(canonical_model_path),
+            summary=str(summary_path),
+        )
 
         # Save model scores CSV (timestamped)
         scores_df = pd.DataFrame(results).sort_values("val_r2", ascending=False)
@@ -469,10 +574,27 @@ def train_timeseries_model(config_path: Optional[str] = "model.yml",
         scores_df.to_csv(scores_path, index=False)
         log("train.save_scores", path=str(scores_path), rows=len(scores_df))
 
+        # Persist feature metadata alongside training artefacts
+        training_dir = cfg.paths.X_path.parent
+        training_dir.mkdir(parents=True, exist_ok=True)
+
+        feature_metadata = {
+            "target": cfg.target,
+            "validation_month": val_month,
+            "models_considered": [r["model"] for r in results],
+            "selected_model": best_name,
+            "feature_metadata": prediction_metadata,
+        }
+        metadata_path = training_dir / "feature_metadata.json"
+        metadata_path.write_text(json.dumps(feature_metadata, indent=2))
+        log("train.save_feature_metadata", path=str(metadata_path))
+
         # Return a GUI-friendly payload
         return {
             "best_model": best_name,
             "best_model_path": str(model_path),
+            "canonical_model_path": str(canonical_model_path),
+            "summary_path": str(summary_path),
             "scores_path": str(scores_path),
             "validation_month": val_month,
             "scores": scores_df.to_dict(orient="records"),

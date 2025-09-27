@@ -8,7 +8,7 @@ from typing import Any, Mapping, Optional
 def setup_logging(verbose: bool = False) -> None:
     """Configure root logger once. Later calls won't add duplicate handlers."""
     if logging.getLogger().handlers:
-        # Already configured elsewhere (tests, notebooks, streamlit, etc.)
+        # Already configured elsewhere (tests, notebooks, alternate front-ends, etc.)
         logging.getLogger().setLevel(logging.DEBUG if verbose else logging.INFO)
         return
     logging.basicConfig(

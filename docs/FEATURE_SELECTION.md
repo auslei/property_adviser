@@ -13,7 +13,7 @@ property_adviser/
 ```
 
 ### Inputs
-- **Derived dataset**: output of `preprocess/cli.py` (typically `data_preprocess/derived.parquet`)
+- **Derived dataset**: output of `preprocess/cli.py` (typically `data/preprocess/derived.csv`)
 - **Config** (`config/features.yml`):
   - `input_file`: path to derived dataset
   - `output_dir`: where outputs are written
@@ -49,9 +49,9 @@ property_adviser/
 - **Scores + selection file** (single Parquet/CSV file, default `feature_scores.parquet`):
   - Columns: `feature, pearson_abs, mutual_info, eta, best_metric, best_score, selected, reason`
 - **Datasets**:
-  - `X.parquet` — selected features
-  - `y.parquet` — target column
-  - `training.parquet` — X + y combined (compatibility)
+  - `X.csv` — selected features (Parquet if you change the extension)
+  - `y.csv` — target column
+  - `training.csv` — X + y combined (compatibility)
 - **Other files**:
   - `selected_features.txt` — plain list of selected column names
 

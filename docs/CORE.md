@@ -1,9 +1,23 @@
 # Core Module (`property_adviser.core`)
 
-Shared utilities that underpin every pipeline stage (logging, configs, IO, orchestration).
+Shared utilities that underpin every pipeline stage (logging, configs, IO, orchestration, filesystem paths).
+
+## paths.py
+Centralised filesystem locations with no heavy dependencies. These paths are exposed publicly via `property_adviser.config` for use across the project.
+- `PROJECT_ROOT`, `DATA_DIR`
+- `PREPROCESS_DIR` (`data/preprocess/`), `TRAINING_DIR` (`data/training/`), `MODELS_DIR`
+- Config paths: `PREPROCESS_CONFIG_PATH`, `FEATURE_ENGINEERING_CONFIG_PATH`, `MODEL_CONFIG_PATH`, `STREET_COORDS_PATH`
+
+Example:
+```python
+from property_adviser.config import PREPROCESS_DIR, MODEL_CONFIG_PATH
+
+derived = PREPROCESS_DIR / "derived.parquet"
+model_cfg = MODEL_CONFIG_PATH.read_text()
+```
 
 ## app_logging.py
-Structured JSON-style logging helpers used across CLIs and Streamlit hooks.
+Structured JSON-style logging helpers used across CLIs, notebooks, and other orchestration layers.
 - `setup_logging(verbose=False)`: configure root logger once per process.
 - `log`, `warn`, `error`: emit events with name + key/value metadata.
 - `log_exc`: capture exceptions with traceback details.

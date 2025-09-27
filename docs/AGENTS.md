@@ -8,7 +8,6 @@
   2. Feature selection (scoring, guardrails, overrides)
   3. Model training / selection
   4. Prediction on persisted artefacts
-- A Streamlit UI wraps the pipeline for interactive runs.
 
 ### Reference Docs
 - MACRO.md — macroeconomic fetcher and integration helper
@@ -39,7 +38,7 @@
 - Guardrails: drop ID-like columns, enforce family preferences, prune correlated pairs (all annotated in the `reason` column).
 - Manual overrides stay GUI-friendly: `include`, `exclude`, `use_top_k`, `top_k`.
 - Outputs in `data/training/`: `feature_scores.parquet`, `X.csv`, `y.csv`, `training.csv`, `selected_features.txt`.
-- Programmatic entrypoint `run_feature_selection` mirrors CLI behaviour for Streamlit usage.
+- Programmatic entrypoint `run_feature_selection` mirrors CLI behaviour for batch automation.
 
 ### 3) Model Training / Selection (`property_adviser/train`)
 - CLI: `uv run pa-train --config config/model.yml --verbose`.
@@ -49,15 +48,6 @@
 
 ### 4) Prediction (`property_adviser/predict`)
 - Loads a persisted pipeline (`best_model_*.joblib`) and produces scored outputs for new records.
-
----
-
-## Streamlit Application
-- `app/Overview.py` — high-level dashboard
-- `app/pages/1_Data_Preprocessing.py` — run/inspect preprocessing outputs and metadata
-- `app/pages/2_Feature_Engineering.py` — review scores, apply overrides, regenerate `X`/`y`
-- `app/pages/3_Model_Selection.py` — kick off training, inspect validation metrics, download artefacts
-- `app/pages/4_Model_Prediction.py` — interactively score new data with the selected model
 
 ---
 
@@ -73,6 +63,6 @@
 
 ## Development Guideline (summary)
 - Stages stay decoupled; shared utils live under `property_adviser/core`.
-- Streamlit triggers module functions; keep heavy logic in package code for reuse by agents.
+- Keep heavy logic under `property_adviser/core` so automation and notebooks remain aligned.
 - Config-driven design keeps runs reproducible across agents; prefer YAML edits over code forks.
 - Follow `docs/DEV_GUIDELINES.md` for coding standards, review expectations, and agent hand-offs.
