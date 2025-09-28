@@ -66,6 +66,12 @@ def extract_street(address: str, cfg: Dict[str, Any]) -> str:
         if addr == original:
             break
 
+    # Step 4b: Drop leading tokens that still contain digits (e.g. "10/6-10")
+    parts = addr.split()
+    while parts and any(char.isdigit() for char in parts[0]):
+        parts.pop(0)
+    addr = " ".join(parts)
+
     # Step 5: Remove leading separators
     addr = re.sub(r"^-\s+", "", addr)
 

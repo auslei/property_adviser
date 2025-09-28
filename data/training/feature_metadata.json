@@ -11,7 +11,7 @@
   ],
   "selected_model": "GradientBoostingRegressor",
   "feature_metadata": {
-    "timestamp": "20250927_215137",
+    "timestamp": "20250928_162705",
     "month_column": "saleYearMonth",
     "raw_feature_columns": [
       "agency",
@@ -28,9 +28,11 @@
       "propertyAgeBand",
       "propertyType",
       "rel_price_vs_suburb_median",
+      "rel_street_effect",
       "saleType",
       "saleYearMonth",
       "std",
+      "street",
       "suburb_delta_12m",
       "suburb_delta_3m",
       "suburb_price_median_12m",
@@ -67,6 +69,7 @@
       "suburb_delta_3m",
       "suburb_delta_12m",
       "rel_price_vs_suburb_median",
+      "rel_street_effect",
       "propertyType",
       "saleType",
       "agency",
@@ -74,6 +77,7 @@
       "developmentZone",
       "ownerType",
       "agencyBrand",
+      "street",
       "propertyAgeBand"
     ],
     "numeric_features": [
@@ -97,7 +101,8 @@
       "suburb_volatility_12m",
       "suburb_delta_3m",
       "suburb_delta_12m",
-      "rel_price_vs_suburb_median"
+      "rel_price_vs_suburb_median",
+      "rel_street_effect"
     ],
     "categorical_features": [
       "propertyType",
@@ -107,6 +112,7 @@
       "developmentZone",
       "ownerType",
       "agencyBrand",
+      "street",
       "propertyAgeBand"
     ],
     "impute": {
@@ -131,7 +137,8 @@
         "suburb_volatility_12m": 614131.8432416591,
         "suburb_delta_3m": 0.0178041543026705,
         "suburb_delta_12m": 0.0122699386503066,
-        "rel_price_vs_suburb_median": 1.026798447559286
+        "rel_price_vs_suburb_median": 1.026798447559286,
+        "rel_street_effect": 0.9616935165243418
       },
       "categorical": {
         "propertyType": "UNIT",
@@ -141,6 +148,7 @@
         "developmentZone": "NRZ3",
         "ownerType": "Owner Occupied",
         "agencyBrand": "Other",
+        "street": "Mitcham Road",
         "propertyAgeBand": "21+"
       }
     },

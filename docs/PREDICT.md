@@ -85,8 +85,8 @@ For batch scoring, supply a list of similarly structured dictionaries to
 same as the input records.
 
 ### Validation & Confidence Estimates
-`predict_with_confidence_interval` pulls the best validation RMSE from
-`models/model_metrics.json` (if present) and constructs a 95% interval using the
+`predict_with_confidence_interval` inspects the most recent
+`models/model_scores_*.csv` file and constructs a 95% interval using the
 normal approximation. The centre value is identical to
 `predict_property_price(...)`.
 

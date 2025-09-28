@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -7,7 +8,11 @@ import numpy as np
 import pandas as pd
 
 from property_adviser.config import MODELS_DIR, TRAINING_DIR
-from property_adviser.predict.feature_store import fetch_reference_features
+from property_adviser.predict.feature_store import (
+    fetch_reference_features,
+    list_streets,
+    list_suburbs,
+)
 
 
 def load_trained_model() -> tuple:
@@ -261,16 +266,19 @@ def predict_with_confidence_interval(
     """
     model, metadata = load_trained_model()
     
-    # Load validation results to estimate prediction uncertainty
-    metrics_path = MODELS_DIR / "model_metrics.json"
-    if metrics_path.exists():
-        metrics = json.loads(metrics_path.read_text())
-        # Take the best model's RMSE as a measure of uncertainty
-        best_model_metrics = min(metrics, key=lambda x: x.get('r2', float('-inf')))
-        rmse = best_model_metrics.get('rmse', 0)
-    else:
-        rmse = 0  # Default uncertainty if no metrics available
-    
+    # Load validation results from the latest model scores CSV (if available)
+    rmse = 0.0
+    score_files = sorted(
+        MODELS_DIR.glob("model_scores_*.csv"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if score_files:
+        scores_df = pd.read_csv(score_files[0])
+        if not scores_df.empty and {"val_r2", "val_rmse"}.issubset(scores_df.columns):
+            top_row = scores_df.sort_values("val_r2", ascending=False).iloc[0]
+            rmse = float(top_row.get("val_rmse", 0.0) or 0.0)
+
     # Make the primary prediction
     predicted_price = predict_property_price(
         yearmonth,
@@ -300,31 +308,48 @@ def predict_with_confidence_interval(
 
 
 if __name__ == "__main__":
-    # Example usage
+    # Example usage that mirrors the production contract
     try:
-        # Example prediction
+        sample_street = "Mitcham Road"
+        sample_suburb = "Mitcham"
+
+        try:
+            streets = list_streets()
+            suburbs = list_suburbs()
+            if streets:
+                sample_street = streets[0]
+            if suburbs:
+                sample_suburb = suburbs[0]
+        except FileNotFoundError:
+            # Fall back to sensible defaults when no derived dataset is available
+            pass
+
+        future_year = datetime.now().year + 1
+        future_yearmonth = future_year * 100 + 1  # January of next year
+
         price = predict_property_price(
-            yearmonth=202506,  # June 2025
+            yearmonth=future_yearmonth,
             bed=3,
             bath=2,
             car=2,
             property_type="House",
-            street="Example Street"
+            street=sample_street,
+            suburb=sample_suburb,
         )
         print(f"Predicted price: ${price:,.2f}")
-        
-        # Example with confidence interval
+
         result = predict_with_confidence_interval(
-            yearmonth=202506,
+            yearmonth=future_yearmonth,
             bed=3,
             bath=2,
             car=2,
-            property_type="House", 
-            street="Example Street"
+            property_type="House",
+            street=sample_street,
+            suburb=sample_suburb,
         )
         print(f"Predicted price: ${result['predicted_price']:,.2f}")
         print(f"Confidence interval: ${result['lower_bound']:,.2f} - ${result['upper_bound']:,.2f}")
-        
+
     except FileNotFoundError as e:
         print(f"Error: {e}")
         print("Please ensure the model has been trained before making predictions.")

@@ -88,6 +88,7 @@ def list_streets() -> List[str]:
         .map(str.strip)
         .loc[lambda s: s.str.len() > 0]
         .loc[lambda s: s.str.lower() != "unknown"]
+        .loc[lambda s: ~s.str.contains(r"\d")]
         .map(str.title)
         .unique()
     )
@@ -131,4 +132,4 @@ def fetch_reference_features(
     else:
         row = subset.iloc[-1]
 
-    return row.reindex(columns=list(columns))
+    return row.reindex(index=list(columns))
