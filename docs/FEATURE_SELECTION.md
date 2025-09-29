@@ -22,6 +22,7 @@ property_adviser/
   - `exclude_columns`: columns to always ignore (e.g. IDs such as `parcelDetail`, addresses)
   - `mi_random_state`: random seed for MI estimation
   - `top_k`: (optional) if present, top-k selection mode is enabled
+  - `elimination`: optional block to enable recursive feature elimination (see below)
 
 > **Tip:** Use `exclude_columns` for dropping ID-like fields (unique identifiers such as `parcelDetail`, `streetAddress`, etc.).
 > These columns won’t be scored or considered for selection, and their exclusion reason will be recorded as
@@ -44,10 +45,28 @@ property_adviser/
    - `exclude`: never select, reason = "manual exclude (not selected)"
    - `use_top_k`: None = follow config; True/False = force
    - `top_k`: override value
+4. **Guardrails**: drop ID-like columns, apply family keep rules, prune highly correlated pairs.
+5. **Recursive Feature Elimination (optional)**: if `elimination.enable` is true, run RFECV with the configured estimator on the surviving columns to produce a model-aware subset. Features that survive elimination are marked with `elimination_selected = True` in the scores table; the minimum RFE rank is stored in `elimination_rank`.
+
+### Recursive Feature Elimination configuration
+The `elimination` block accepts:
+
+| Key | Description | Default |
+| --- | --- | --- |
+| `enable` | Turn the elimination step on/off. | `false` |
+| `estimator` | Estimator name (`RandomForestRegressor`, `GradientBoostingRegressor`, `HistGradientBoostingRegressor`, `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`). | `RandomForestRegressor` |
+| `estimator_params` | Dict of keyword arguments passed to the estimator constructor. | `{}` |
+| `step` | Number of features to drop per RFE iteration. | `1` |
+| `min_features` | Minimum original features to keep (before one-hot expansion). | `5` |
+| `scoring` | Sklearn scoring string used by RFECV. | `r2` |
+| `cv` | Cross-validation folds for RFECV. | `3` |
+| `n_jobs` | Parallelism for RFECV (pass `-1` for all cores). | `None` |
+
+The step uses a preprocessing pipeline (`SimpleImputer` + `StandardScaler` + `OneHotEncoder`) so tree and linear models can work with mixed datatypes. Manual include lists still win—anything in `include` is re-added after RFE even if the estimator would drop it.
 
 ### Outputs
 - **Scores + selection file** (single Parquet/CSV file, default `feature_scores.parquet`):
-  - Columns: `feature, pearson_abs, mutual_info, eta, best_metric, best_score, selected, reason`
+  - Columns: `feature, pearson_abs, mutual_info, eta, best_metric, best_score, selected, reason, elimination_rank, elimination_selected`
 - **Datasets**:
   - `X.csv` — selected features (Parquet if you change the extension)
   - `y.csv` — target column
@@ -83,15 +102,4 @@ selected = result.selected_columns
 
 ### Logging
 On completion, an event is logged:
-```json
-{
-  "event": "feature_selection.complete",
-  "features": <count>,
-  "output_dir": "<path>",
-  "threshold": <float>,
-  "use_top_k": <bool>,
-  "top_k": <int or null>,
-  "include": <count>,
-  "exclude": <count>
-}
-```
+`feature_selection.complete` still fires with the final feature count. When elimination runs successfully an additional `feature_selection.elimination` event is emitted (`estimator`, `selected`, `total`, `best_score`, `step`, `cv`).

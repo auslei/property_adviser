@@ -3,8 +3,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple, Mapping
 import argparse
-import json
 import pandas as pd
+import numpy as np
+import re
+from sklearn.compose import ColumnTransformer
+from sklearn.feature_selection import RFECV
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.ensemble import (
+    RandomForestRegressor,
+    GradientBoostingRegressor,
+    HistGradientBoostingRegressor,
+)
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+import warnings
 
 from property_adviser.core.config import load_config
 from property_adviser.core.io import (
@@ -17,6 +30,16 @@ from property_adviser.core.app_logging import log, setup_logging
 from property_adviser.feature.compute import compute_feature_scores_from_parquet
 
 CONFIG_PATH = "config/features.yml"
+
+ELIMINATION_ESTIMATORS = {
+    "RandomForestRegressor": RandomForestRegressor,
+    "GradientBoostingRegressor": GradientBoostingRegressor,
+    "HistGradientBoostingRegressor": HistGradientBoostingRegressor,
+    "LinearRegression": LinearRegression,
+    "Ridge": Ridge,
+    "Lasso": Lasso,
+    "ElasticNet": ElasticNet,
+}
 
 
 @dataclass
@@ -77,7 +100,6 @@ def _apply_overrides(
     feat_set = [f for f in feat_set if f not in set(exclude)]
     return feat_set
 
-import re
 import numpy as np
 
 def _mark_reason(scores_df, feat, reason, selected_flag=None):
@@ -184,6 +206,202 @@ def _prune_correlated(df, candidate_cols, scores_df, cfg, include, best_score_ma
         _mark_reason(scores_df, keeper, f"kept over {dcol} (r={r:.3f})", selected_flag=True)
     return final
 
+
+def _build_elimination_estimator(cfg: Mapping[str, Any]):
+    name = cfg.get("estimator", "RandomForestRegressor")
+    if name not in ELIMINATION_ESTIMATORS:
+        raise ValueError(
+            f"Unsupported elimination estimator '{name}'. Available: {sorted(ELIMINATION_ESTIMATORS)}"
+        )
+    params = cfg.get("estimator_params") or {}
+    return ELIMINATION_ESTIMATORS[name](**params)
+
+
+def _run_recursive_elimination(
+    df: pd.DataFrame,
+    target_col: str,
+    candidate_cols: List[str],
+    *,
+    scores_df: pd.DataFrame,
+    cfg: Mapping[str, Any],
+    include: List[str],
+) -> List[str]:
+    elim_cfg = cfg.get("elimination", {}) or {}
+    if not elim_cfg.get("enable", False):
+        return candidate_cols
+
+    if len(candidate_cols) <= 1:
+        return candidate_cols
+
+    min_features_cfg = int(elim_cfg.get("min_features", 5))
+    if len(candidate_cols) <= max(1, min_features_cfg):
+        return candidate_cols
+
+    X = df[candidate_cols].copy()
+    y = df[target_col]
+
+    num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    cat_cols = [c for c in candidate_cols if c not in num_cols]
+
+    transformers = []
+    if num_cols:
+        transformers.append(
+            (
+                "num",
+                Pipeline(
+                    steps=[
+                        ("imputer", SimpleImputer(strategy="median")),
+                        ("scaler", StandardScaler()),
+                    ]
+                ),
+                list(num_cols),
+            )
+        )
+    if cat_cols:
+        transformers.append(
+            (
+                "cat",
+                Pipeline(
+                    steps=[
+                        ("imputer", SimpleImputer(strategy="most_frequent")),
+                        ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+                    ]
+                ),
+                list(cat_cols),
+            )
+        )
+
+    if not transformers:
+        return candidate_cols
+
+    preprocessor = ColumnTransformer(transformers=transformers, remainder="drop")
+
+    try:
+        X_processed = preprocessor.fit_transform(X)
+    except Exception as exc:
+        log(
+            "feature_selection.elimination_failed",
+            error=str(exc),
+            stage="preprocess",
+        )
+        return candidate_cols
+
+    if X_processed is None or X_processed.size == 0:
+        return candidate_cols
+
+    X_matrix = np.asarray(X_processed)
+    y_array = np.asarray(y)
+
+    feature_names = list(preprocessor.get_feature_names_out())
+    base_names: List[str] = []
+    if num_cols:
+        base_names.extend(num_cols)
+    if cat_cols:
+        cat_transformer: Pipeline = preprocessor.named_transformers_["cat"]  # type: ignore[index]
+        ohe: OneHotEncoder = cat_transformer.named_steps["onehot"]
+        cat_feature_names = ohe.get_feature_names_out(cat_cols)
+        base_names.extend(name.split("_", 1)[0] for name in cat_feature_names)
+
+    encoded_to_base = dict(zip(feature_names, base_names))
+    if len(encoded_to_base) != len(feature_names):
+        encoded_to_base = {}
+        for name in feature_names:
+            stripped = name.split("__", 1)[-1]
+            base = stripped.split("_", 1)[0]
+            encoded_to_base[name] = base
+
+    try:
+        estimator = _build_elimination_estimator(elim_cfg)
+    except Exception as exc:
+        log("feature_selection.elimination_failed", error=str(exc), stage="estimator")
+        return candidate_cols
+
+    step = int(max(1, elim_cfg.get("step", 1)))
+    min_features_to_select = int(max(1, min(min_features_cfg, len(candidate_cols) - 1)))
+    scoring = elim_cfg.get("scoring", "r2")
+    cv = int(elim_cfg.get("cv", 3))
+    n_jobs = elim_cfg.get("n_jobs")
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        try:
+            rfecv = RFECV(
+                estimator=estimator,
+                step=step,
+                min_features_to_select=min_features_to_select,
+                scoring=scoring,
+                cv=cv,
+                n_jobs=n_jobs,
+            )
+            rfecv.fit(X_matrix, y_array)
+        except Exception as exc:
+            log("feature_selection.elimination_failed", error=str(exc), stage="rfecv")
+            return candidate_cols
+
+    support_mask = rfecv.support_
+    ranking = rfecv.ranking_
+
+    base_support: Dict[str, bool] = {col: False for col in candidate_cols}
+    base_rank: Dict[str, int] = {}
+
+    for encoded_name, keep_flag, rank in zip(feature_names, support_mask, ranking):
+        base = encoded_to_base.get(encoded_name)
+        if base not in base_support:
+            continue
+        if keep_flag:
+            base_support[base] = True
+        base_rank[base] = min(rank, base_rank.get(base, rank))
+
+    # honour manual includes
+    for col in include:
+        if col in base_support:
+            base_support[col] = True
+            base_rank.setdefault(col, 1)
+
+    # Ensure columns exist in score table
+    if "elimination_rank" not in scores_df.columns:
+        scores_df["elimination_rank"] = pd.NA
+    if "elimination_selected" not in scores_df.columns:
+        scores_df["elimination_selected"] = pd.NA
+
+    for col, selected in base_support.items():
+        idx = scores_df.index[scores_df["feature"] == col]
+        if len(idx):
+            if col in base_rank:
+                scores_df.loc[idx, "elimination_rank"] = int(base_rank[col])
+            scores_df.loc[idx, "elimination_selected"] = bool(selected)
+        if selected:
+            _mark_reason(scores_df, col, "kept: elimination", selected_flag=True)
+        else:
+            _mark_reason(scores_df, col, "dropped: elimination", selected_flag=False)
+
+    final_selection = [c for c in candidate_cols if base_support.get(c)]
+
+    if not final_selection:
+        return candidate_cols
+
+    best_score = None
+    if hasattr(rfecv, "cv_results_"):
+        cv_results = rfecv.cv_results_
+        if "mean_test_score" in cv_results:
+            best_score = float(np.max(cv_results["mean_test_score"]))
+    elif hasattr(rfecv, "grid_scores_"):
+        scores = np.array(rfecv.grid_scores_)
+        if scores.size:
+            best_score = float(np.max(scores))
+
+    log(
+        "feature_selection.elimination",
+        estimator=elim_cfg.get("estimator", "RandomForestRegressor"),
+        selected=len(final_selection),
+        total=len(candidate_cols),
+        best_score=best_score,
+        step=step,
+        cv=cv,
+    )
+
+    return final_selection
+
 def run_feature_selection(
     cfg: Dict[str, Any],
     *,
@@ -211,6 +429,10 @@ def run_feature_selection(
     # 1) Compute scores and tidy
     raw_scores = compute_feature_scores_from_parquet(config=cfg)
     scores_df = _tidy_scores(raw_scores)          # builds pearson_abs/mutual_info/eta
+    if "elimination_rank" not in scores_df.columns:
+        scores_df["elimination_rank"] = pd.NA
+    if "elimination_selected" not in scores_df.columns:
+        scores_df["elimination_selected"] = pd.NA
 
     # 2) Load DF here so guardrails can use it
     df = load_parquet_or_csv(Path(cfg["input_file"]))
@@ -264,6 +486,14 @@ def run_feature_selection(
     selected_cols = _drop_id_like(df, selected_cols, scores_df, cfg, include or [])
     selected_cols = _apply_family_rules(selected_cols, scores_df, cfg, include or [])
     selected_cols = _prune_correlated(df, selected_cols, scores_df, cfg, include or [], best_score_map)
+    selected_cols = _run_recursive_elimination(
+        df,
+        target_col,
+        selected_cols,
+        scores_df=scores_df,
+        cfg=cfg,
+        include=include or [],
+    )
 
     # 7) Refresh final flags after guardrails
     scores_df["selected"] = scores_df["feature"].isin(set(selected_cols))
