@@ -164,9 +164,13 @@ def _prune_correlated(df, candidate_cols, scores_df, cfg, include, best_score_ma
     thr = float(red_cfg.get("threshold", 0.95))
     prefer_keep = set(red_cfg.get("prefer_keep", []))
 
-    # numeric-only for correlation
+    #numeric-only for correlation
     cols = [c for c in candidate_cols if c in df.columns]
-    num_cols = [c for c in cols if np.issubdtype(df[c].dropna().infer_objects().dtype, np.number)]
+    num_cols = [
+        c for c in cols
+        if pd.api.types.is_numeric_dtype(df[c].dropna().infer_objects())
+    ]
+    
     if len(num_cols) <= 1:
         return candidate_cols
 

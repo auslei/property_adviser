@@ -66,3 +66,10 @@
 - Keep heavy logic under `property_adviser/core` so automation and notebooks remain aligned.
 - Config-driven design keeps runs reproducible across agents; prefer YAML edits over code forks.
 - Follow `docs/DEV_GUIDELINES.md` for coding standards, review expectations, and agent hand-offs.
+
+---
+
+### 2025-09-29 04:05:57Z — Session Notes
+- Expanded feature-selection tooling with optional RFECV elimination, configurable dataset exports, and richer logging to surface progress during long runs.
+- Added `market_insights_app.py` Streamlit dashboard plus documentation updates so analysts can explore drivers, demand shifts, and price timelines.
+- Hardened guardrails (correlation pruning respects categoricals; driver tab honours `exclude_columns`) and refreshed docs to reflect the new workflow.
