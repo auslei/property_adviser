@@ -17,6 +17,7 @@ property_adviser/
 - **Config** (`config/features.yml`):
   - `input_file`: path to derived dataset
   - `output_dir`: where outputs are written
+  - `dataset_format`: `parquet` or `csv` for the generated `X`, `y`, and `training` datasets
   - `target`: target column name
   - `correlation_threshold`: numeric threshold (applied to best_score)
   - `exclude_columns`: columns to always ignore (e.g. IDs such as `parcelDetail`, addresses)
@@ -68,9 +69,9 @@ The step uses a preprocessing pipeline (`SimpleImputer` + `StandardScaler` + `On
 - **Scores + selection file** (single Parquet/CSV file, default `feature_scores.parquet`):
   - Columns: `feature, pearson_abs, mutual_info, eta, best_metric, best_score, selected, reason, elimination_rank, elimination_selected`
 - **Datasets**:
-  - `X.csv` — selected features (Parquet if you change the extension)
-  - `y.csv` — target column
-  - `training.csv` — X + y combined (compatibility)
+  - `X.<ext>` — selected features (extension controlled by `dataset_format`)
+  - `y.<ext>` — target column
+  - `training.<ext>` — X + y combined (compatibility)
 - **Other files**:
   - `selected_features.txt` — plain list of selected column names
 

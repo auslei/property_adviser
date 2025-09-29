@@ -1,7 +1,8 @@
-input_file: data/preprocess/derived.csv
+input_file: data/preprocess/derived.parquet
 output_dir: data/training/
 target: salePrice
 correlation_threshold: 0.05     # note: MI is [0..1]; η is [0..1]; Pearson is [0..1]
+dataset_format: parquet          # options: parquet | csv for X/y/training outputs
 exclude_columns:
   - streetAddress
   - sourceFile

@@ -231,10 +231,21 @@ def _run_recursive_elimination(
         return candidate_cols
 
     if len(candidate_cols) <= 1:
+        log(
+            "feature_selection.elimination_skipped",
+            reason="too_few_features",
+            total=len(candidate_cols),
+        )
         return candidate_cols
 
     min_features_cfg = int(elim_cfg.get("min_features", 5))
     if len(candidate_cols) <= max(1, min_features_cfg):
+        log(
+            "feature_selection.elimination_skipped",
+            reason="under_min_features",
+            total=len(candidate_cols),
+            min_features=min_features_cfg,
+        )
         return candidate_cols
 
     X = df[candidate_cols].copy()
@@ -272,9 +283,22 @@ def _run_recursive_elimination(
         )
 
     if not transformers:
+        log(
+            "feature_selection.elimination_skipped",
+            reason="no_transformers",
+            total=len(candidate_cols),
+        )
         return candidate_cols
 
     preprocessor = ColumnTransformer(transformers=transformers, remainder="drop")
+
+    log(
+        "feature_selection.elimination_start",
+        estimator=elim_cfg.get("estimator", "RandomForestRegressor"),
+        total=len(candidate_cols),
+        numeric=len(num_cols),
+        categorical=len(cat_cols),
+    )
 
     try:
         X_processed = preprocessor.fit_transform(X)
@@ -291,6 +315,12 @@ def _run_recursive_elimination(
 
     X_matrix = np.asarray(X_processed)
     y_array = np.asarray(y)
+
+    log(
+        "feature_selection.elimination_preprocessed",
+        samples=int(X_matrix.shape[0]),
+        encoded_features=int(X_matrix.shape[1]),
+    )
 
     feature_names = list(preprocessor.get_feature_names_out())
     base_names: List[str] = []
@@ -332,6 +362,13 @@ def _run_recursive_elimination(
                 scoring=scoring,
                 cv=cv,
                 n_jobs=n_jobs,
+            )
+            log(
+                "feature_selection.elimination_rfecv_fit",
+                samples=int(X_matrix.shape[0]),
+                encoded_features=int(X_matrix.shape[1]),
+                cv=cv,
+                step=step,
             )
             rfecv.fit(X_matrix, y_array)
         except Exception as exc:
@@ -524,14 +561,19 @@ def run_feature_selection(
         # Selected list (nice to keep for debugging / pipelines)
         write_list(selected_cols, out_dir / "selected_features.txt")
 
+        dataset_format = str(cfg.get("dataset_format", "csv")).lower()
+        if dataset_format not in {"csv", "parquet"}:
+            raise ValueError("dataset_format must be either 'csv' or 'parquet'")
+        dataset_ext = ".parquet" if dataset_format == "parquet" else ".csv"
+
         # X / y outputs
-        save_parquet_or_csv(X, out_dir / "X.csv")
+        save_parquet_or_csv(X, out_dir / f"X{dataset_ext}")
         y_frame = y if isinstance(y, pd.DataFrame) else y.to_frame(name=target_col)
-        save_parquet_or_csv(y_frame, out_dir / "y.csv")
+        save_parquet_or_csv(y_frame, out_dir / f"y{dataset_ext}")
 
         # Optional combined training set (kept for compatibility)
         train = df[selected_cols + [target_col]]
-        save_parquet_or_csv(train, out_dir / "training.csv")
+        save_parquet_or_csv(train, out_dir / f"training{dataset_ext}")
 
         log(
             "feature_selection.complete",

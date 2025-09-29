@@ -1,11 +1,11 @@
 clean:
   config_path: config/pp_clean.yml
-  output_path: data/preprocess/cleaned.csv
-  dropped_rows_path: data/preprocess/dropped_rows.csv
+  output_path: data/preprocess/cleaned.parquet
+  dropped_rows_path: data/preprocess/dropped_rows.parquet
 
 derivation:
   config_path: config/pp_derive.yml
-  output_path: data/preprocess/derived.csv
+  output_path: data/preprocess/derived.parquet
   metadata_path: data/preprocess/metadata.json
 
 # (optional) run flags
