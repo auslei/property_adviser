@@ -20,34 +20,24 @@ property_adviser/
 - Consolidates fields into canonical forms (e.g. `agency` → `agencyBrand`).
 
 ### Derivations (`preprocess_derive.py`)
-The derivation step engineers additional predictors from cleaned fields. Key groups:
+The derivation step engineers additional predictors from cleaned fields. The table below summarises the derived columns, how they are calculated, and why they exist.
 
-#### Temporal / Market Trend Features
-- `month_id`: monotonic month index (dense rank of `saleYearMonth`).
-- Seasonality: cyclic sine/cosine encodings of `saleMonth`.
-- Suburb-level rolling aggregates (all shifted to avoid leakage):
-  - `suburb_price_median_3m`, `6m`, `12m`
-  - `suburb_txn_count_3m`, `6m`, `12m`
-  - `suburb_volatility_3m`, `6m`, `12m`
-- Momentum: % change in suburb medians (`suburb_delta_3m`, `suburb_delta_12m`).
-
-#### Property Size & Density Ratios
-- `land_per_bed = landSize / (bed+1)`
-- `floor_per_bed = propertySize / (bed+1)`
-- `car_per_bed = car / (bed+1)`
-- `bed_bath_ratio = bed / (bath+1)`
-- `price_per_sqm_land = salePrice / landSize`
-- `price_per_sqm_floor = salePrice / propertySize`
-  - Division-by-zero and extreme skew handled in cleaning.
-
-#### Relative Pricing Features
-- `rel_price_vs_suburb_median = salePrice / suburb_price_median_current`
-- Optional: `rel_price_vs_region_median` if a region index is available.
-- `rel_street_effect`: mean street price ÷ suburb mean (leave-one-out, only if street sample size above threshold).
-
-#### Age & Vintage
-- `propertyAge = saleYear – buildYear`
-- Banded into categories: `0–5`, `6–20`, `21+`.
+| Feature(s) | Definition | Rationale |
+| --- | --- | --- |
+| `month_id` | Dense rank of `saleYearMonth`, optionally offset from zero. | Provides a monotonic time index for models that need an ordinal month reference. |
+| `saleMonth_sin`, `saleMonth_cos` | Sine/cosine encoding of `saleMonth`. | Captures within-year seasonality without discontinuity between December → January. |
+| `suburb_price_median_current` | Prior-month suburb median sale price (lagged by one month). | Anchors each record to the last known market level without leaking the current sale. |
+| `suburb_price_median_3m`, `suburb_price_median_6m`, `suburb_price_median_12m` | Rolling medians of the lagged suburb median across 3/6/12 months. | Smooths medium- and long-term suburb price trends for stability. |
+| `suburb_txn_count_3m`, `suburb_txn_count_6m`, `suburb_txn_count_12m` | Rolling sums of lagged suburb transaction counts over 3/6/12 months. | Proxies recent demand depth and liquidity in the suburb. |
+| `suburb_volatility_3m`, `suburb_volatility_6m`, `suburb_volatility_12m` | Rolling means of lagged suburb price standard deviation across 3/6/12 months. | Measures recent market volatility to distinguish steady vs. volatile suburbs. |
+| `suburb_delta_3m`, `suburb_delta_12m` | Percent change of the lagged suburb median vs. 3 and 12 months ago. | Captures short/long momentum while remaining leakage-safe. |
+| `suburb_<tag>_*` (e.g. `suburb_house_price_median_current`, `suburb_other_txn_count_6m`) | Same aggregates as above, but calculated within property-type tags supplied via `type_col`. | Gives the model property-type-specific market context so houses aren’t compared to units and vice versa. |
+| `land_per_bed`, `floor_per_bed`, `car_per_bed`, `bed_bath_ratio` | Ratios created via `_safe_ratio` using bed/bath counts plus one to avoid zero division. | Normalises size/amenity features by occupancy to highlight layout efficiency. |
+| `price_per_sqm_land`, `price_per_sqm_floor` | Sale price divided by land/floor area with optional clipping. | Adds value-per-area signals that correlate with density and desirability. |
+| `rel_price_vs_suburb_median` | `salePrice / suburb_price_median_current`. | Indicates how a sale compares to the suburb benchmark; reused at prediction for interpretability. |
+| `rel_street_effect` | Leave-one-out ratio of street mean price to suburb mean (when sufficient samples). | Captures persistent street-level premiums or discounts. |
+| `propertyAge` | `saleYear – yearBuilt`, constrained to non-negative values. | Reflects property vintage, a strong price driver. |
+| `propertyAgeBand` | Categorical bins of `propertyAge` using configured cut-offs (default 0–5, 6–20, 21+). | Buckets age into coarse segments that play nicely with categorical models. |
 
 ### CLI (`preprocess/cli.py`)
 - Orchestrates cleaning + derivation from `config/preprocessing.yml`.

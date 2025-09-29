@@ -26,6 +26,22 @@ def _norm_token(s: str) -> str:
     return s
 
 
+def _slugify_tag(value: Optional[str], fallback: str = "other") -> str:
+    """Convert a property-type label to a safe slug.
+
+    Parameters
+    ----------
+    value:
+        Raw property-type label (may be None).
+    fallback:
+        Value to use when the slug would be empty.
+    """
+    if not value:
+        return fallback
+    slug = re.sub(r"[^a-z0-9]+", "_", str(value).lower()).strip("_")
+    return slug or fallback
+
+
 # --- Feature Extraction ---
 def extract_street(address: str, cfg: Dict[str, Any]) -> str:
     """Extract and clean street name from a full address string."""
@@ -386,6 +402,97 @@ def _build_suburb_month_table(
     return g
 
 
+def _build_suburb_rollup_features(
+    sm: pd.DataFrame,
+    *,
+    suburb_col: str,
+    month_col: str,
+    windows: Sequence[int],
+    base_prefix: str,
+    overall: bool,
+) -> pd.DataFrame:
+    """Compute lagged suburb-level metrics for a given aggregate table.
+
+    Parameters
+    ----------
+    sm:
+        Suburb-month aggregate table with columns ['median', 'count', 'std'].
+    base_prefix:
+        Prefix for the output feature names (e.g. 'suburb' or 'suburb_house').
+    overall:
+        When True, align naming with the historical single-segment outputs.
+    """
+    if sm.empty:
+        return pd.DataFrame(columns=[suburb_col, month_col])
+
+    sm = sm.sort_values([suburb_col, month_col])
+    sm["median_prior"] = sm.groupby(suburb_col)["median"].shift(1)
+    sm["count_prior"] = sm.groupby(suburb_col)["count"].shift(1)
+    sm["std_prior"] = sm.groupby(suburb_col)["std"].shift(1)
+
+    for window in windows:
+        window = int(window)
+        sm[f"median_roll_{window}m"] = sm.groupby(suburb_col)["median_prior"].transform(
+            lambda s: s.rolling(window=window, min_periods=1).median()
+        )
+        sm[f"count_roll_{window}m"] = sm.groupby(suburb_col)["count_prior"].transform(
+            lambda s: s.rolling(window=window, min_periods=1).sum()
+        )
+        sm[f"std_roll_{window}m"] = sm.groupby(suburb_col)["std_prior"].transform(
+            lambda s: s.rolling(window=window, min_periods=1).mean()
+        )
+
+    sm["delta_3m"] = sm.groupby(suburb_col)["median_prior"].pct_change(periods=3)
+    sm["delta_12m"] = sm.groupby(suburb_col)["median_prior"].pct_change(periods=12)
+
+    # Replace infinities that can arise when the lagged median is zero.
+    sm = sm.replace([np.inf, -np.inf], np.nan)
+
+    keep_cols = [
+        suburb_col,
+        month_col,
+        "median_prior",
+        "count_prior",
+        "std_prior",
+        "median_roll_3m",
+        "median_roll_6m",
+        "median_roll_12m",
+        "count_roll_3m",
+        "count_roll_6m",
+        "count_roll_12m",
+        "std_roll_3m",
+        "std_roll_6m",
+        "std_roll_12m",
+        "delta_3m",
+        "delta_12m",
+    ]
+    sm = sm[keep_cols]
+
+    rename = {
+        "median_prior": f"{base_prefix}_price_median_current",
+        "median_roll_3m": f"{base_prefix}_price_median_3m",
+        "median_roll_6m": f"{base_prefix}_price_median_6m",
+        "median_roll_12m": f"{base_prefix}_price_median_12m",
+        "count_roll_3m": f"{base_prefix}_txn_count_3m",
+        "count_roll_6m": f"{base_prefix}_txn_count_6m",
+        "count_roll_12m": f"{base_prefix}_txn_count_12m",
+        "std_roll_3m": f"{base_prefix}_volatility_3m",
+        "std_roll_6m": f"{base_prefix}_volatility_6m",
+        "std_roll_12m": f"{base_prefix}_volatility_12m",
+        "delta_3m": f"{base_prefix}_delta_3m",
+        "delta_12m": f"{base_prefix}_delta_12m",
+    }
+
+    if overall:
+        rename["count_prior"] = "count"
+        rename["std_prior"] = "std"
+    else:
+        rename["count_prior"] = f"{base_prefix}_txn_count_current"
+        rename["std_prior"] = f"{base_prefix}_volatility_current"
+
+    return sm.rename(columns=rename)
+
+
 def derive_suburb_time_aggregates(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
     """
     Rolling suburb medians, counts (volume), and volatility (std) with NO leakage:
@@ -414,53 +521,76 @@ def derive_suburb_time_aggregates(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.
         warn("derive.suburb_time_aggregates", reason="missing_columns", error=str(e))
         return df
 
-    # Ensure sorted by month for each suburb
-    sm = sm.sort_values([suburb_col, month_col])
-    # Past-only info
-    for col in ["median", "count", "std"]:
-        sm[f"{col}_lag1"] = sm.groupby(suburb_col)[col].shift(1)
+    rollups_overall = _build_suburb_rollup_features(
+        sm,
+        suburb_col=suburb_col,
+        month_col=month_col,
+        windows=windows,
+        base_prefix=prefix,
+        overall=True,
+    )
 
-    # Rolling windows
-    for w in windows:
-        sm[f"median_roll_{w}m"] = sm.groupby(suburb_col)["median_lag1"].transform(
-            lambda s: s.rolling(window=w, min_periods=1).median()
-        )
-        sm[f"count_roll_{w}m"] = sm.groupby(suburb_col)["count_lag1"].transform(
-            lambda s: s.rolling(window=w, min_periods=1).sum()
-        )
-        sm[f"std_roll_{w}m"] = sm.groupby(suburb_col)["std_lag1"].transform(
-            lambda s: s.rolling(window=w, min_periods=1).mean()
-        )
+    merged = df.merge(rollups_overall, on=[suburb_col, month_col], how="left")
 
-    # Momentum on monthly medians (not rolling): pct change vs 3/12 months ago
-    sm["delta_3m"] = sm.groupby(suburb_col)["median"].pct_change(periods=3)
-    sm["delta_12m"] = sm.groupby(suburb_col)["median"].pct_change(periods=12)
+    tags_used: List[str] = []
+    type_col = spec.get("type_col")
+    if type_col:
+        if type_col not in df.columns:
+            warn("derive.suburb_time_aggregates", reason="missing_type_column", column=type_col)
+        else:
+            type_map_cfg = spec.get("type_map", {})
+            type_map = {str(k).strip().upper(): _slugify_tag(v) for k, v in type_map_cfg.items()}
+            type_default = _slugify_tag(spec.get("type_default", "other"))
 
-    # Merge back to row level
-    keep_cols = [suburb_col, month_col,
-                 "median", "count", "std",
-                 "median_roll_3m", "median_roll_6m", "median_roll_12m",
-                 "count_roll_3m", "count_roll_6m", "count_roll_12m",
-                 "std_roll_3m", "std_roll_6m", "std_roll_12m",
-                 "delta_3m", "delta_12m"]
-    sm = sm[keep_cols]
-    sm = sm.rename(columns={
-        "median": f"{prefix}_price_median_current",
-        "median_roll_3m": f"{prefix}_price_median_3m",
-        "median_roll_6m": f"{prefix}_price_median_6m",
-        "median_roll_12m": f"{prefix}_price_median_12m",
-        "count_roll_3m": f"{prefix}_txn_count_3m",
-        "count_roll_6m": f"{prefix}_txn_count_6m",
-        "count_roll_12m": f"{prefix}_txn_count_12m",
-        "std_roll_3m": f"{prefix}_volatility_3m",
-        "std_roll_6m": f"{prefix}_volatility_6m",
-        "std_roll_12m": f"{prefix}_volatility_12m",
-        "delta_3m": f"{prefix}_delta_3m",
-        "delta_12m": f"{prefix}_delta_12m",
-    })
+            raw_types = df[type_col].fillna("").astype(str).str.strip().str.upper()
+            mapped_types = raw_types.map(type_map)
+            tag_series = mapped_types.fillna(type_default)
 
-    merged = df.merge(sm, on=[suburb_col, month_col], how="left")
-    log("derive.suburb_time_aggregates", rows=merged.shape[0], windows=windows)
+            configured_tags = spec.get("type_tags")
+            if configured_tags:
+                allowed_tags = []
+                for tag in configured_tags:
+                    slug = _slugify_tag(tag)
+                    if slug and slug not in allowed_tags:
+                        allowed_tags.append(slug)
+            else:
+                allowed_tags = sorted(tag for tag in tag_series.dropna().unique() if tag)
+
+            type_subset = df[[suburb_col, month_col, price_col]].copy()
+            type_subset["__type_tag"] = tag_series
+
+            for tag in allowed_tags:
+                if not tag:
+                    continue
+                subset = type_subset[type_subset["__type_tag"] == tag]
+                if subset.empty:
+                    continue
+                sm_tag = _build_suburb_month_table(
+                    subset[[suburb_col, month_col, price_col]],
+                    suburb_col,
+                    month_col,
+                    price_col,
+                )
+                if sm_tag.empty:
+                    continue
+                tag_prefix = f"{prefix}_{tag}"
+                rollups_tag = _build_suburb_rollup_features(
+                    sm_tag,
+                    suburb_col=suburb_col,
+                    month_col=month_col,
+                    windows=windows,
+                    base_prefix=tag_prefix,
+                    overall=False,
+                )
+                merged = merged.merge(rollups_tag, on=[suburb_col, month_col], how="left")
+                tags_used.append(tag)
+
+    log(
+        "derive.suburb_time_aggregates",
+        rows=merged.shape[0],
+        windows=list(windows),
+        type_tags=tags_used or None,
+    )
     return merged
 
 

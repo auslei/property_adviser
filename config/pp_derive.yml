@@ -28,6 +28,12 @@ suburb_time_aggregates:
   price_col: salePrice
   windows: [3, 6, 12]
   prefix: suburb
+  type_col: propertyType
+  type_map:
+    HOUSE: house
+    TOWNHOUSE: house
+  type_default: other
+  type_tags: [house, other]
 
 # 2) Property Size & Density Ratios
 ratio_land_per_bed:

@@ -7,6 +7,8 @@ exclude_columns:
   - sourceFile
   - openInRpdata
   - parcelDetail
+  - rel_price_vs_suburb_median # data leakage
+  - rel_street_effect # data leakage
 mi_random_state: 7 
 #top_k: 10   # optional; if present, used instead of correlation_threshold
 
