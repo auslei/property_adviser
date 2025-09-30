@@ -20,10 +20,10 @@
    - Interface and dataset expectations live in `property_adviser/preprocess/AGENTS.md`.
 
 2. **Feature Selection (`property_adviser/feature`)**
-   - Consumes `derived.csv` per `config/features.yml`, scores via Pearson, normalised MI, and eta metrics, then applies guardrails and overrides.
-   - Produces `feature_scores.parquet` plus `X.csv`, `y.csv`, `training.csv`, and `selected_features.txt` under `data/training/`.
+   - Typed config loader + pipeline record elapsed timings, normalise scores, and expose consistent guardrail logging.
+   - Supports correlation threshold or top-k selection, optional RFECV pruning with row/feature caps, and emits `feature_scores` plus X/y artefacts in the requested format.
    - CLI: `uv run pa-feature --config config/features.yml --scores-file feature_scores.parquet`.
-   - Implementation notes and RFECV guidance: `property_adviser/feature/AGENTS.md`.
+   - Implementation notes, elimination tuning, and API usage: `property_adviser/feature/AGENTS.md`.
 
 3. **Model Training (`property_adviser/train`)**
    - CLI: `uv run pa-train --config config/model.yml --verbose`.

@@ -41,7 +41,7 @@ def correlation_ratio(categories: pd.Series, values: pd.Series) -> float:
         return 0.0
 
     ss_between = 0.0
-    for _, g in vals.groupby(cats):
+    for _, g in vals.groupby(cats, observed=False):
         n = float(len(g))
         if n == 0:
             continue

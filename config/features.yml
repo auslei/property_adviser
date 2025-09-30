@@ -48,3 +48,5 @@ elimination:
   scoring: r2
   cv: 3
   n_jobs: -1
+  # max_features: 60        # optionally cap features passed to RFECV (helps speed)
+  # sample_rows: 2000       # optionally sample rows before elimination (deterministic with random_state)

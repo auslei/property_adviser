@@ -14,9 +14,10 @@
 ## Structure
 ```
 property_adviser/feature/
-  cli.py        # CLI / batch entry point
-  compute.py    # Metric computation
-  selector.py   # Guardrails, overrides, elimination
+  config.py    # Typed config schema + loader
+  pipeline.py  # run_feature_selection orchestration + guardrails
+  cli.py       # Thin CLI + compatibility wrapper
+  compute.py   # Metric computation helpers
 ```
 
 ## Inputs
@@ -25,11 +26,11 @@ property_adviser/feature/
 - Manual overrides can be supplied via CLI flags, GUI orchestration, or programmatic calls to `run_feature_selection`.
 
 ## Metrics & Selection
-- Metrics: `pearson_abs`, normalised `mutual_info`, and `eta`.
-- Best score = `max(pearson_abs, mutual_info, eta)`; `best_metric` tracks the governing metric.
-- Guardrails: drop ID-like columns, enforce family keep rules, prune highly correlated pairs, and annotate reasons.
-- Manual overrides: `include`, `exclude`, `use_top_k`, `top_k` always win over automatic decisions.
-- Optional RFECV elimination: configured under the `elimination` block; surviving features are marked via `elimination_rank` and `elimination_selected`.
+- Metrics: `pearson_abs`, normalised `mutual_info`, and `eta` (computed via `compute_feature_scores`).
+- Best score = `max(pearson_abs, mutual_info, eta)` with `best_metric` storing the winner.
+- Guardrails: drop ID-like columns, enforce family rules, prune highly correlated pairs, and annotate reasons in the shared scores table.
+- Manual overrides (`include`, `exclude`, `use_top_k`, `top_k`) always take precedence.
+- Optional RFECV elimination (configured via `elimination`): supports `max_features` (limit columns passed to RFE), `sample_rows` (row sampling for speed), and logs preprocessing + fit durations alongside summary scores.
 
 ## Outputs (`data/training/`)
 - `feature_scores.parquet` (or `.csv`): full metrics, selection flags, override reasons, and elimination metadata.
@@ -44,13 +45,12 @@ uv run pa-feature --config config/features.yml --scores-file feature_scores.parq
 
 ## Programmatic Usage
 ```python
-from property_adviser.feature.cli import run_feature_selection
-from property_adviser.core.config import load_config
+from property_adviser.feature import load_feature_selection_config, run_feature_selection
 
-cfg = load_config("config/features.yml")
-result = run_feature_selection(cfg, include=[], exclude=[], use_top_k=None, top_k=None, write_outputs=False)
+config = load_feature_selection_config(Path("config/features.yml"))
+result = run_feature_selection(config, include=[], exclude=[], write_outputs=False)
 ```
-- Returned object exposes `.scores_table`, `.X`, `.y`, and `.selected_columns` to keep GUIs and automation in sync.
+- Returned `FeatureSelectionResult` exposes `.scores_table`, `.selected_columns`, `.X`, and `.y` so GUIs and automation stay in sync.
 
 ## Handover to Training
 - Respect manual selection flags so model training stays deterministic.
@@ -58,5 +58,5 @@ result = run_feature_selection(cfg, include=[], exclude=[], use_top_k=None, top_
 
 ## Maintenance Checklist
 1. Keep guardrail logic deterministic and configuration-driven; document new rules here.
-2. Extend elimination support via config (e.g., new estimators) rather than branching per caller.
+2. Extend elimination support via config (new estimators, sampling, feature caps) rather than branching per caller.
 3. Preserve schema compatibility when adding metrics—augment the scores table instead of renaming columns unless necessary.

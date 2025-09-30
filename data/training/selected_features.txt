@@ -6,8 +6,6 @@ floorSizeM2
 yearBuilt
 saleYearMonth
 saleMonth_sin
-saleMonth_cos
-suburb_price_median_current
 count
 suburb_price_median_3m
 suburb_price_median_6m
@@ -36,7 +34,6 @@ suburb_other_price_median_current
 suburb_other_txn_count_current
 suburb_other_volatility_current
 suburb_other_price_median_3m
-suburb_other_price_median_6m
 suburb_other_price_median_12m
 suburb_other_txn_count_3m
 suburb_other_txn_count_12m
@@ -45,12 +42,3 @@ suburb_other_volatility_6m
 suburb_other_volatility_12m
 suburb_other_delta_3m
 suburb_other_delta_12m
-propertyType
-saleType
-agency
-landUse
-developmentZone
-ownerType
-agencyBrand
-street
-propertyAgeBand
