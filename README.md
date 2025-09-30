@@ -13,8 +13,9 @@ The workflow is modular and agent-friendly: **Macro data → Preprocessing → F
 - `data/macro` – macroeconomic series fetched from external sources
 - `models` – persisted models, score summaries
 - `config` – YAMLs for every stage (`macro.yml`, `preprocessing.yml`, `pp_clean.yml`, `pp_derive.yml`, `features.yml`, `model.yml`)
-- `property_adviser/` – core Python package (`core`, `macro`, `preprocess`, `feature`, `train`, `predict`)
-- `docs/` – deep-dive module notes (Macro, Preprocess, Feature selection, Training, etc.)
+- `property_adviser/` – core Python package (`core`, `macro`, `preprocess`, `feature`, `train`, `predict`) with module docs co-located as `AGENTS.md`
+- `app/` – Streamlit applications (`predict_app.py`, `market_insights_app.py`) with their own `AGENTS.md`
+- `docs/` – shared references (`COMMON.md`)
 
 > Note: the legacy Streamlit UI has been retired; use the CLI entry points or build your own presentation layer on top of the core package.
 
@@ -35,7 +36,7 @@ uv sync
 ```bash
 uv run pa-macro --config config/macro.yml --verbose
 ```
-Produces CPI, cash-rate, and ASX index tables under `data/macro/`, plus a merged `macro_au_annual.csv` ready to join on sale year. See `docs/MACRO.md` for column definitions and the `add_macro_yearly` helper.
+Produces CPI, cash-rate, and ASX index tables under `data/macro/`, plus a merged `macro_au_annual.csv` ready to join on sale year. See `property_adviser/macro/AGENTS.md` for source contracts and the `add_macro_yearly` helper.
 
 ### 1) Preprocessing
 ```bash
@@ -46,7 +47,7 @@ uv run pa-preprocess --config config/preprocessing.yml --verbose
 - `data/preprocess/derived.csv`
 - `data/preprocess/metadata.json`
 - Optional drop audit if `dropped_rows_path` is configured
-Details live in `docs/PREPROCESS_MODULE.md` (seasonality features, suburb trends, ratios, age buckets, macro joins, etc.).
+Details live in `property_adviser/preprocess/AGENTS.md` (seasonality features, suburb trends, ratios, age buckets, macro joins, etc.).
 
 ### 2) Feature Selection
 ```bash
@@ -56,7 +57,7 @@ Scores every candidate with Pearson, normalised mutual information, and correlat
 - `feature_scores.parquet` (full metrics + selection reasons)
 - `X.csv`, `y.csv`, `training.csv`
 - `selected_features.txt`
-See `docs/FEATURE_SELECTION.md` for configuration tips.
+See `property_adviser/feature/AGENTS.md` for configuration tips.
 
 ### 3) Model Training / Selection
 ```bash
@@ -66,13 +67,13 @@ Consumes the selected features, honours manual overrides from the scores table, 
 - `best_model_<model>_<timestamp>.joblib`
 - `model_scores_<timestamp>.csv`
 - `feature_metadata.json`
-Refer to `docs/TRAINING.md` for split rules, supported models, and extension points.
+Refer to `property_adviser/train/AGENTS.md` for split rules, supported models, and extension points.
 
 ### 4) Prediction
 ```bash
-uv run pa-predict --input new_data.csv --model models/best_model_<...>.joblib
+# Batch scoring handled in notebooks or orchestrations
 ```
-Loads the persisted pipeline and scores new rows (outside this README’s scope).
+Load the persisted pipeline and score new rows using helpers in `property_adviser/predict`. Refer to `property_adviser/predict/AGENTS.md` for API documentation and metadata contracts.
 
 ---
 
@@ -85,17 +86,19 @@ Loads the persisted pipeline and scores new rows (outside this README’s scope)
 ---
 
 ## References
-- `docs/MACRO.md` — macro data fetcher and integration helper
-- `docs/PREPROCESS_MODULE.md` — cleaning + derivation details
-- `docs/FEATURE_SELECTION.md` — scoring, guardrails, and overrides
-- `docs/TRAINING.md` — model orchestration and artefact schema
-- `docs/PREDICT.md` — runtime prediction helpers and metadata contract
+- `property_adviser/macro/AGENTS.md`
+- `property_adviser/preprocess/AGENTS.md`
+- `property_adviser/feature/AGENTS.md`
+- `property_adviser/train/AGENTS.md`
+- `property_adviser/predict/AGENTS.md`
+- `property_adviser/core/AGENTS.md`
+- `app/AGENTS.md`
+- `docs/COMMON.md` — shared conventions, schema expectations, glossary
+- Root `AGENTS.md` — agent-facing walkthrough and development standards
 
-Optional Streamlit front-end:
+Optional Streamlit front-ends:
 ```bash
 uv pip install streamlit
-streamlit run app/predict_app.py
+uv run streamlit run app/predict_app.py
+uv run streamlit run app/market_insights_app.py
 ```
-- `docs/COMMON.md` — shared conventions, schema expectations, glossary
-- `docs/DEV_GUIDELINES.md` — coding standards and agent workflows
-- `docs/AGENTS.md` — agent-facing walkthrough of the pipeline and UI
