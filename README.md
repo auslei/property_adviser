@@ -15,7 +15,7 @@ The workflow is modular and agent-friendly: **Macro data → Preprocessing → F
 - `config` – YAMLs for every stage (`macro.yml`, `preprocessing.yml`, `pp_clean.yml`, `pp_derive.yml`, `features.yml`, `model.yml`)
 - `property_adviser/` – core Python package (`core`, `macro`, `preprocess`, `feature`, `train`, `predict`) with module docs co-located as `AGENTS.md`
 - `app/` – Streamlit applications (`predict_app.py`, `market_insights_app.py`) with their own `AGENTS.md`
-- `docs/` – shared references (`COMMON.md`)
+- Module docs live alongside code as `AGENTS.md`; shared contract notes are captured in the root `AGENTS.md` playbook.
 
 > Note: the legacy Streamlit UI has been retired; use the CLI entry points or build your own presentation layer on top of the core package.
 
@@ -93,8 +93,7 @@ Load the persisted pipeline and score new rows using helpers in `property_advise
 - `property_adviser/predict/AGENTS.md`
 - `property_adviser/core/AGENTS.md`
 - `app/AGENTS.md`
-- `docs/COMMON.md` — shared conventions, schema expectations, glossary
-- Root `AGENTS.md` — agent-facing walkthrough and development standards
+- Root `AGENTS.md` — pipeline walkthrough plus shared conventions, schema expectations, glossary, and development standards
 
 Optional Streamlit front-ends:
 ```bash
