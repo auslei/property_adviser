@@ -60,27 +60,41 @@ def main() -> dict[str, Any]:
     args = parser.parse_args()
 
     setup_logging(verbose=args.verbose)
-    config = load_feature_selection_config(args.config)
-    log("feature_selection.cli.start", config=str(args.config), verbose=args.verbose)
-
-    result = _run_with_config(
-        config,
-        include=None,
-        exclude=None,
-        use_top_k=None,
-        top_k=None,
-        write_outputs=True,
-        scores_output_filename=args.scores_file,
+    configs = load_feature_selection_config(args.config)
+    log(
+        "feature_selection.cli.start",
+        config=str(args.config),
+        verbose=args.verbose,
+        targets=len(configs),
     )
 
-    print(f"Selected {len(result.selected_columns)} features → {result.output_dir}")
-    print(f"Scores table → {result.scores_path}")
-    return {
-        "selected_columns": result.selected_columns,
-        "n_selected": len(result.selected_columns),
-        "output_dir": str(result.output_dir) if result.output_dir else None,
-        "scores_path": str(result.scores_path) if result.scores_path else None,
-    }
+    summaries = []
+    for cfg in configs:
+        result = _run_with_config(
+            cfg,
+            include=None,
+            exclude=None,
+            use_top_k=None,
+            top_k=None,
+            write_outputs=True,
+            scores_output_filename=args.scores_file if len(configs) == 1 else None,
+        )
+        print(
+            f"Target {cfg.target}: selected {len(result.selected_columns)} features → {result.output_dir}"
+        )
+        if result.scores_path:
+            print(f"  Scores table → {result.scores_path}")
+        summaries.append(
+            {
+                "target": cfg.target,
+                "selected_columns": result.selected_columns,
+                "n_selected": len(result.selected_columns),
+                "output_dir": str(result.output_dir) if result.output_dir else None,
+                "scores_path": str(result.scores_path) if result.scores_path else None,
+            }
+        )
+
+    return {"targets": summaries}
 
 
 if __name__ == "__main__":  # pragma: no cover

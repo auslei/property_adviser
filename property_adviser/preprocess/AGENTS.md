@@ -38,11 +38,14 @@ Engineer leak-safe features using deterministic inputs:
 - Ratio features (`land_per_bed`, `price_per_sqm_land`, etc.) built via `_safe_ratio`.
 - Age features (`propertyAge`, `propertyAgeBand`) with configurable buckets.
 - Optional macro joins via `property_adviser.macro.add_macro_yearly`.
+- Configurable bucketing turns raw attributes into segment features (`bed_bucket`, `bath_bucket`, `land_bucket`, `floor_bucket`) using YAML-defined bins or mappings.
+- Segment aggregation builds one row per observation month using the configured grouping keys (default: suburb + property type + buckets). Aggregated metrics (`current_price_median`, `transaction_count`, etc.) and lead targets (e.g., `price_future_6m`, `price_future_12m`) are computed from the raw data with look-ahead horizons.
 
 ## Outputs
 All files are written using `property_adviser.core.io.save_parquet_or_csv`:
 - `data/preprocess/cleaned.csv`
-- `data/preprocess/derived.csv`
+- `data/preprocess/segments.parquet` (segment-level dataset)
+- `data/preprocess/derived_detailed.parquet` (optional property-level snapshot)
 - `data/preprocess/metadata.json`
 - Optional `data/preprocess/dropped_rows.parquet`
 

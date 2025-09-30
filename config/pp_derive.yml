@@ -111,3 +111,81 @@ age_bands:
   age_col: propertyAge
   output: propertyAgeBand
   bands: [5, 20]   # -> "0–5", "6–20", "21+"
+
+# 5) Configurable Buckets for Segmenting Properties
+buckets:
+  bed:
+    enabled: true
+    source: bed
+    bins: [1, 2, 3, 4]
+    labels: ["0-1", "2", "3", "4", "5+"]
+    fill_value: "Unknown"
+  bath:
+    enabled: true
+    source: bath
+    bins: [1, 2, 3]
+    labels: ["0-1", "2", "3", "4+"]
+    fill_value: "Unknown"
+  land:
+    enabled: true
+    source: landSizeM2
+    bins: [200, 400, 600, 800, 1000]
+    labels: ["<=200", "201-400", "401-600", "601-800", "801-1000", "1000+"]
+    fill_value: "Unknown"
+  floor:
+    enabled: true
+    source: floorSizeM2
+    bins: [100, 150, 200]
+    labels: ["<=100", "101-150", "151-200", "200+"]
+    fill_value: "Unknown"
+
+# 6) Segment Grouping (used for future target generation / aggregation)
+grouping:
+  enabled: true
+  month_col: saleYearMonth
+  keys:
+    - suburb
+    - propertyType
+    - bed_bucket
+    - bath_bucket
+    - land_bucket
+    - floor_bucket
+  min_rows: 12          # minimum records per group to retain
+  min_months: 12        # minimum distinct months per group
+
+# 7) Aggregations for Segment-Level Features
+aggregations:
+  enabled: true
+  metrics:
+    - name: current_price_median
+      source: salePrice
+      agg: median
+    - name: current_price_mean
+      source: salePrice
+      agg: mean
+    - name: transaction_count
+      source: salePrice
+      agg: count
+    - name: avg_land_size
+      source: landSizeM2
+      agg: mean
+    - name: avg_floor_size
+      source: floorSizeM2
+      agg: mean
+
+# 8) Future Targets (shifted horizons)
+future_targets:
+  - name: price_future_6m
+    source: salePrice
+    agg: median
+    horizon: 6
+    window: 1
+    min_periods: 6
+    drop_na: true
+  - name: price_future_12m
+    source: salePrice
+    agg: median
+    horizon: 12
+    window: 1
+    min_periods: 12
+    drop_na: true

@@ -8,7 +8,7 @@ The workflow is modular and agent-friendly: **Macro data → Preprocessing → F
 
 ## Repository Layout
 - `data/raw` – source CSVs from vendors
-- `data/preprocess` – cleaned tables, derived features, drop audits, metadata
+- `data/preprocess` – cleaned tables, segment-level features/targets, optional detail snapshots, audits, metadata
 - `data/training` – feature matrices, targets, scores, selected feature lists
 - `data/macro` – macroeconomic series fetched from external sources
 - `models` – persisted models, score summaries
@@ -42,20 +42,15 @@ Produces CPI, cash-rate, and ASX index tables under `data/macro/`, plus a merged
 ```bash
 uv run pa-preprocess --config config/preprocessing.yml --verbose
 ```
-`preprocessing.yml` orchestrates cleaning (`pp_clean.yml`) and derivation (`pp_derive.yml`). Outputs:
-- `data/preprocess/cleaned.csv`
-- `data/preprocess/derived.csv`
-- `data/preprocess/metadata.json`
-- Optional drop audit if `dropped_rows_path` is configured
-Details live in `property_adviser/preprocess/AGENTS.md` (seasonality features, suburb trends, ratios, age buckets, macro joins, etc.).
+`preprocessing.yml` orchestrates cleaning (`pp_clean.yml`) and derivation (`pp_derive.yml`). Outputs include `cleaned.parquet`, the segment dataset (`segments.parquet`) with forward targets/horizons, optional `derived_detailed.parquet`, metadata, and drop audits. Details live in `property_adviser/preprocess/AGENTS.md` (seasonality features, suburb trends, ratios, age buckets, macro joins, buckets, future targets, etc.).
 
 ### 2) Feature Selection
 ```bash
-uv run pa-feature --config config/features.yml --scores-file feature_scores.parquet
+uv run pa-feature --config config/features.yml --verbose
 ```
-Scores every candidate with Pearson, normalised mutual information, and correlation ratio, then applies threshold or top-k selection. Guardrails drop ID-like columns, enforce family rules, and prune highly correlated predictors while respecting manual `include` / `exclude` overrides. CLI and programmatic entrypoints both return `X`, `y`, selected columns, and a rich `reason` log. Outputs land in `data/training/`:
+Scores every candidate with Pearson, normalised mutual information, and correlation ratio, then applies threshold or top-k selection. Guardrails drop ID-like columns, enforce family rules, and prune highly correlated predictors while respecting manual `include` / `exclude` overrides. When multiple targets are declared, the CLI iterates through each target and writes artefacts to `data/training/<target>/`:
 - `feature_scores.parquet` (full metrics + selection reasons)
-- `X.csv`, `y.csv`, `training.csv`
+- `X.parquet`, `y.parquet`, `training.parquet`
 - `selected_features.txt`
 See `property_adviser/feature/AGENTS.md` for configuration tips.
 
@@ -63,11 +58,7 @@ See `property_adviser/feature/AGENTS.md` for configuration tips.
 ```bash
 uv run pa-train --config config/model.yml --verbose
 ```
-Consumes the selected features, honours manual overrides from the scores table, and performs a month-based train/validation split. Each enabled estimator runs through a GridSearchCV pipeline (with automatic preprocessing). Optional `log_target: true` trains on log(price) and back-transforms predictions. Artefacts are timestamped under `models/`:
-- `best_model_<model>_<timestamp>.joblib`
-- `model_scores_<timestamp>.csv`
-- `feature_metadata.json`
-Refer to `property_adviser/train/AGENTS.md` for split rules, supported models, and extension points.
+Consumes the selected features for each configured target/horizon, applies manual overrides from the scores table, and performs month-based train/validation splits. Each enabled estimator runs through a GridSearchCV pipeline (with automatic preprocessing). Artefacts are timestamped under `models/<target>/` (`best_model_*.joblib`, `model_scores_*.csv`, `feature_metadata.json`) and a consolidated `training_report_*.json` summarises every target. Refer to `property_adviser/train/AGENTS.md` for split rules, supported models, and extension points.
 
 ### 4) Prediction
 ```bash
@@ -79,9 +70,9 @@ Load the persisted pipeline and score new rows using helpers in `property_advise
 
 ## Generated Artefacts (summary)
 - **Macro**: `cpi_quarterly.csv`, `cpi_annual_*.csv`, `rba_cash_*.csv`, `asx200_yearly.csv`, `macro_au_annual.csv`
-- **Preprocess**: `cleaned.csv`, `derived.csv`, `metadata.json`, optional `dropped_rows` parquet
-- **Feature selection**: `feature_scores.parquet`, `X.csv`, `y.csv`, `training.csv`, `selected_features.txt`
-- **Training**: timestamped `best_model_*.joblib`, `model_scores_*.csv`, `feature_metadata.json`
+- **Preprocess**: `cleaned.parquet`, `segments.parquet`, optional `derived_detailed.parquet`, `metadata.json`, optional `dropped_rows.parquet`
+- **Feature selection**: per-target outputs (`feature_scores.parquet`, `X.parquet`, `y.parquet`, `training.parquet`, `selected_features.txt`)
+- **Training**: per-target artefacts (`best_model_*.joblib`, `model_scores_*.csv`, `feature_metadata.json`) plus consolidated `training_report_*.json`
 
 ---
 

@@ -36,6 +36,9 @@ MODEL_FACTORY = {
 
 @dataclass
 class TrainingResult:
+    name: str
+    target: str
+    timestamp: str
     best_model: str
     best_model_path: Path
     canonical_model_path: Path
@@ -282,6 +285,8 @@ def run_training(config: TrainingConfig) -> TrainingResult:
             "train.feature_scores_loaded",
             rows=len(feature_scores),
             cols=list(feature_scores.columns),
+            target=config.target,
+            config_name=config.name,
         )
 
     X_effective = _apply_feature_overrides(X, feature_scores)
@@ -290,18 +295,45 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         mask_valid = y > 0
         if not mask_valid.all():
             dropped = int((~mask_valid).sum())
-            log("train.log_target_drop_nonpositive", dropped=dropped)
+            log(
+                "train.log_target_drop_nonpositive",
+                dropped=dropped,
+                target=config.target,
+                config_name=config.name,
+            )
             X_effective = X_effective.loc[mask_valid].copy()
             y = y.loc[mask_valid].copy()
 
-    validation_month = _choose_validation_month(X_effective, config.split.month_column, config.split.validation_month)
-    log("train.validation_month", month=validation_month)
+    validation_month = _choose_validation_month(
+        X_effective, config.split.month_column, config.split.validation_month
+    )
+    log(
+        "train.validation_month",
+        month=validation_month,
+        target=config.target,
+        config_name=config.name,
+    )
 
-    X_tr, X_va, y_tr, y_va = _split_by_month(X_effective, y, config.split.month_column, validation_month)
-    log("train.split", train_rows=len(X_tr), val_rows=len(X_va), n_features=X_tr.shape[1])
+    X_tr, X_va, y_tr, y_va = _split_by_month(
+        X_effective, y, config.split.month_column, validation_month
+    )
+    log(
+        "train.split",
+        train_rows=len(X_tr),
+        val_rows=len(X_va),
+        n_features=X_tr.shape[1],
+        target=config.target,
+        config_name=config.name,
+    )
 
     preprocessor, numeric_features, categorical_features = _build_preprocessor(X_tr)
-    log("train.preprocessor", num=len(numeric_features), cat=len(categorical_features))
+    log(
+        "train.preprocessor",
+        num=len(numeric_features),
+        cat=len(categorical_features),
+        target=config.target,
+        config_name=config.name,
+    )
 
     candidates = _model_candidates(config.models)
 
@@ -327,6 +359,7 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         "train.start",
         task=config.task,
         target=config.target,
+        config_name=config.name,
         X=str(config.input.X),
         y=str(config.input.y),
         feature_scores=str(config.input.feature_scores) if config.input.feature_scores else None,
@@ -349,7 +382,7 @@ def run_training(config: TrainingConfig) -> TrainingResult:
             )
             param_grid = _prefix_if_log_target(param_grid)
 
-        with time_block("train.gridsearch", model=name):
+        with time_block("train.gridsearch", model=name, target=config.target, config_name=config.name):
             gs = GridSearchCV(
                 estimator=trained_estimator,
                 param_grid=param_grid,
@@ -366,6 +399,8 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         log(
             "train.validation",
             model=name,
+            target=config.target,
+            config_name=config.name,
             **metrics,
             best_cv_score=float(getattr(gs, "best_score_", np.nan)),
         )
@@ -405,7 +440,14 @@ def run_training(config: TrainingConfig) -> TrainingResult:
 
     model_path = artifacts_dir / f"best_model_{best_model_name}_{timestamp}.joblib"
     joblib.dump(bundle, model_path)
-    log("train.save_model", path=str(model_path), model=best_model_name, r2=best_model_score)
+    log(
+        "train.save_model",
+        path=str(model_path),
+        model=best_model_name,
+        r2=best_model_score,
+        target=config.target,
+        config_name=config.name,
+    )
 
     canonical_model_path = artifacts_dir / "best_model.joblib"
     joblib.dump(bundle, canonical_model_path)
@@ -427,12 +469,20 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         "train.save_model_canonical",
         model=str(canonical_model_path),
         summary=str(summary_path),
+        target=config.target,
+        config_name=config.name,
     )
 
     scores_df = pd.DataFrame(results).sort_values("val_r2", ascending=False)
     scores_path = artifacts_dir / f"model_scores_{timestamp}.csv"
     scores_df.to_csv(scores_path, index=False)
-    log("train.save_scores", path=str(scores_path), rows=len(scores_df))
+    log(
+        "train.save_scores",
+        path=str(scores_path),
+        rows=len(scores_df),
+        target=config.target,
+        config_name=config.name,
+    )
 
     metadata_payload = {
         "target": config.target,
@@ -444,7 +494,12 @@ def run_training(config: TrainingConfig) -> TrainingResult:
     metadata_path = config.input.base / "feature_metadata.json"
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata_payload, indent=2))
-    log("train.save_feature_metadata", path=str(metadata_path))
+    log(
+        "train.save_feature_metadata",
+        path=str(metadata_path),
+        target=config.target,
+        config_name=config.name,
+    )
 
     duration = perf_counter() - overall_start
     log(
@@ -452,9 +507,14 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         duration=round(duration, 3),
         best_model=best_model_name,
         validation_month=validation_month,
+        target=config.target,
+        config_name=config.name,
     )
 
     return TrainingResult(
+        name=config.name,
+        target=config.target,
+        timestamp=timestamp,
         best_model=best_model_name,
         best_model_path=model_path,
         canonical_model_path=canonical_model_path,

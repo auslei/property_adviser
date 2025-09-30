@@ -1,52 +1,31 @@
-input_file: data/preprocess/derived.parquet
-output_dir: data/training/
-target: salePrice
-correlation_threshold: 0.05     # note: MI is [0..1]; η is [0..1]; Pearson is [0..1]
-dataset_format: parquet          # options: parquet | csv for X/y/training outputs
+input_file: data/preprocess/segments.parquet
+base_output_dir: data/training
 exclude_columns:
-  - streetAddress
-  - sourceFile
-  - openInRpdata
-  - parcelDetail
-  - rel_price_vs_suburb_median # data leakage
-  - rel_street_effect # data leakage
-mi_random_state: 7 
-#top_k: 10   # optional; if present, used instead of correlation_threshold
-
+  - observingYearMonth
+  - street
+  - __source_file
+mi_random_state: 7
+dataset_format: parquet
 id_like:
   enable: true
-  min_unique_ratio: 0.98     # drop columns where nunique / n_rows >= 0.98
+  min_unique_ratio: 0.98
   drop_regex:
     - "_id$"
     - "^id$"
-    - "^parcel"
     - "uuid"
     - "guid"
-
 redundancy:
   enable: true
-  method: correlation        # [correlation]
-  threshold: 0.95            # drop one of any pair with |r| >= 0.95
-  prefer_keep:               # if a pair clashes, keep the one listed here
+  threshold: 0.95
+  prefer_keep:
     - saleYearMonth
-    - saleYear
-    - saleMonth
+families: {}
+future_overrides: {}
 
-families:                    # enforce “keep only one” inside each family
-  sale_date:
-    columns: [saleDate, saleYear, saleMonth, saleYearMonth]
-    keep: [saleYearMonth]    # columns to keep inside the family (others dropped)
-
-elimination:
-  enable: true
-  estimator: RandomForestRegressor
-  estimator_params:
-    n_estimators: 300
-    random_state: 7
-  step: 1
-  min_features: 12
-  scoring: r2
-  cv: 3
-  n_jobs: -1
-  # max_features: 60        # optionally cap features passed to RFECV (helps speed)
-  # sample_rows: 2000       # optionally sample rows before elimination (deterministic with random_state)
+targets:
+  - name: price_future_6m
+    output_subdir: price_future_6m
+    correlation_threshold: 0.05
+  - name: price_future_12m
+    output_subdir: price_future_12m
+    correlation_threshold: 0.05

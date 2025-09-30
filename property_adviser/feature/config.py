@@ -3,9 +3,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from property_adviser.core.config import load_config
+
+
+def _merge_dicts(base: Dict[str, Any], override: Mapping[str, Any]) -> Dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], Mapping) and isinstance(value, Mapping):
+            merged[key] = _merge_dicts(dict(merged[key]), value)
+        else:
+            merged[key] = value
+    return merged
 
 
 @dataclass(frozen=True)
@@ -166,11 +176,40 @@ class FeatureSelectionConfig:
         )
 
 
-def load_feature_selection_config(path: Path) -> FeatureSelectionConfig:
+def load_feature_selection_config(path: Path) -> List[FeatureSelectionConfig]:
     raw = load_config(path)
     cfg_dir = path.parent
     base = cfg_dir.parent if cfg_dir.name == "config" else cfg_dir
-    return FeatureSelectionConfig.from_mapping(raw, base_path=base, config_dir=cfg_dir)
+
+    targets_cfg = raw.get("targets")
+    if not targets_cfg:
+        return [FeatureSelectionConfig.from_mapping(raw, base_path=base, config_dir=cfg_dir)]
+
+    base_output_dir = raw.get("base_output_dir") or raw.get("output_dir", "data/training")
+    configs: List[FeatureSelectionConfig] = []
+
+    for target_cfg in targets_cfg:
+        if not isinstance(target_cfg, Mapping):
+            raise ValueError("Each target configuration must be a mapping.")
+
+        merged = _merge_dicts(dict(raw), target_cfg)
+        target_name = merged.pop("name", None) or merged.get("target")
+        if not target_name:
+            raise KeyError("Target configuration requires a 'name'.")
+        merged["target"] = target_name
+
+        output_subdir = target_cfg.get("output_subdir") or target_name
+        merged["output_dir"] = str(Path(base_output_dir) / output_subdir)
+
+        configs.append(
+            FeatureSelectionConfig.from_mapping(
+                merged,
+                base_path=base,
+                config_dir=cfg_dir,
+            )
+        )
+
+    return configs
 
 
 __all__ = [

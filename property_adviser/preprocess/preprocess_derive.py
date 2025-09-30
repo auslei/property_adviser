@@ -42,6 +42,218 @@ def _slugify_tag(value: Optional[str], fallback: str = "other") -> str:
     return slug or fallback
 
 
+def _apply_bucket_definitions(df: pd.DataFrame, buckets_cfg: Dict[str, Any]) -> pd.DataFrame:
+    if not buckets_cfg:
+        return df
+
+    df = df.copy()
+
+    for bucket_name, spec in buckets_cfg.items():
+        if not isinstance(spec, dict) or not spec.get("enabled", True):
+            continue
+
+        source = spec.get("source")
+        if not source or source not in df.columns:
+            warn("derive.bucket", bucket=bucket_name, reason="missing_source", source=source)
+            continue
+
+        output = spec.get("output", f"{bucket_name}_bucket")
+        fill_value = spec.get("fill_value", "Unknown")
+
+        series = df[source]
+        bucket_values: pd.Series
+
+        if "bins" in spec:
+            raw_values = pd.to_numeric(series, errors="coerce")
+            bins = spec.get("bins") or []
+            if not isinstance(bins, (list, tuple)) or not bins:
+                warn("derive.bucket", bucket=bucket_name, reason="invalid_bins")
+                continue
+            bins = sorted(float(b) for b in bins)
+            include_lowest = bool(spec.get("include_lowest", True))
+            right = bool(spec.get("right", True))
+            extend_lower = spec.get("extend_lower", True)
+            extend_upper = spec.get("extend_upper", True)
+
+            edges: List[float] = bins.copy()
+            if extend_lower:
+                edges = [-np.inf] + edges
+            if extend_upper:
+                edges = edges + [np.inf]
+            labels = spec.get("labels")
+            if labels is not None and len(labels) != len(edges) - 1:
+                warn(
+                    "derive.bucket",
+                    bucket=bucket_name,
+                    reason="label_mismatch",
+                    expected=len(edges) - 1,
+                    provided=len(labels),
+                )
+                labels = None
+            bucket_values = pd.cut(
+                raw_values,
+                bins=edges,
+                labels=labels,
+                include_lowest=include_lowest,
+                right=right,
+            )
+            if labels is None:
+                bucket_values = bucket_values.astype(str)
+
+        elif "mapping" in spec:
+            mapping = spec.get("mapping") or {}
+            default = mapping.get("default", fill_value)
+            bucket_values = series.map(mapping).fillna(default)
+        else:
+            warn("derive.bucket", bucket=bucket_name, reason="unsupported_spec")
+            continue
+
+        bucket_series = bucket_values.astype(str).replace({"nan": np.nan}).fillna(fill_value)
+        df[output] = bucket_series
+        log("derive.bucket", bucket=bucket_name, output=output, unique=int(df[output].nunique()))
+
+    return df
+
+
+def _compute_future_targets(
+    df: pd.DataFrame,
+    *,
+    group_keys: Sequence[str],
+    month_col: str,
+    specs: Sequence[Dict[str, Any]],
+) -> Optional[pd.DataFrame]:
+    if not specs:
+        return None
+
+    month_numeric = pd.to_numeric(df[month_col], errors="coerce")
+    working = df.copy()
+    working[month_col] = month_numeric
+
+    results: List[pd.Series] = []
+    for spec in specs:
+        if not spec.get("name"):
+            continue
+        source = spec.get("source")
+        if source not in working.columns:
+            warn("derive.future_target", target=spec.get("name"), reason="missing_source", source=source)
+            continue
+        agg = spec.get("agg", "median")
+        horizon = int(spec.get("horizon", 6))
+        window = int(spec.get("window", 1))
+        min_periods = int(spec.get("min_periods", window))
+
+        grouped = working.groupby(list(group_keys) + [month_col], dropna=False)[source].agg(agg)
+        grouped.index.names = list(group_keys) + [month_col]
+        grouped = grouped.sort_index()
+
+        def compute(series: pd.Series) -> pd.Series:
+            series = series.sort_index()
+            shifted = series.shift(-horizon)
+            if window > 1:
+                shifted = shifted.rolling(window=window, min_periods=min_periods).mean()
+            return shifted
+
+        future_series = grouped.groupby(level=list(range(len(group_keys))), group_keys=False).apply(compute)
+        future_series.name = spec["name"]
+        results.append(future_series)
+
+    if not results:
+        return None
+
+    combined = pd.concat(results, axis=1)
+    combined = combined.reset_index()
+    return combined
+
+
+def build_segments(
+    df: pd.DataFrame,
+    config: Dict[str, Any],
+) -> tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+    grouping_cfg = config.get("grouping") or {}
+    if not grouping_cfg or not grouping_cfg.get("enabled", True):
+        return None, {}
+
+    month_col = grouping_cfg.get("month_col", "saleYearMonth")
+    keys: List[str] = grouping_cfg.get("keys", [])
+    min_rows = int(grouping_cfg.get("min_rows", 0))
+    min_months = int(grouping_cfg.get("min_months", 0))
+
+    missing = [col for col in keys + [month_col] if col not in df.columns]
+    if missing:
+        warn("derive.segment", reason="missing_columns", missing=missing)
+        return None, {}
+
+    working = df.copy()
+    working[month_col] = pd.to_numeric(working[month_col], errors="coerce")
+
+    group_cols = keys + [month_col]
+
+    segment_df = (
+        working.groupby(group_cols, dropna=False)
+        .size()
+        .rename("record_count")
+        .reset_index()
+    )
+
+    agg_cfg = config.get("aggregations") or {}
+    metrics = agg_cfg.get("metrics", []) if agg_cfg.get("enabled", True) else []
+    for metric in metrics:
+        name = metric.get("name")
+        source = metric.get("source")
+        agg = metric.get("agg", "median")
+        if not name or not source:
+            continue
+        if source not in working.columns:
+            warn("derive.segment", metric=name, reason="missing_source", source=source)
+            continue
+        agg_series = (
+            working.groupby(group_cols, dropna=False)[source]
+            .agg(agg)
+            .rename(name)
+            .reset_index()
+        )
+        segment_df = segment_df.merge(agg_series, on=group_cols, how="left")
+
+    # Filter groups by overall activity (rows/months)
+    if min_rows or min_months:
+        group_totals = working.groupby(keys, dropna=False).size()
+        group_months = working.groupby(keys, dropna=False)[month_col].nunique()
+        valid_groups = group_totals.index
+        if min_rows:
+            valid_groups = group_totals[group_totals >= min_rows].index
+        if min_months:
+            valid_groups = group_months[group_months >= min_months].index.intersection(valid_groups)
+        if len(valid_groups) != len(group_totals):
+            segment_df = segment_df[segment_df.set_index(keys).index.isin(valid_groups)]
+
+    future_specs = config.get("future_targets") or []
+    future_df = _compute_future_targets(df, group_keys=keys, month_col=month_col, specs=future_specs)
+    if future_df is not None:
+        segment_df = segment_df.merge(future_df, on=group_cols, how="left")
+
+    # Optional dropping of rows with missing future targets when drop_na flag set
+    for spec in future_specs:
+        if spec.get("drop_na") and spec.get("name") in segment_df.columns:
+            segment_df = segment_df[segment_df[spec["name"]].notna()]
+
+    segment_df = segment_df.reset_index(drop=True)
+    segment_df["observingYearMonth"] = segment_df[month_col]
+
+    segment_meta = {
+        "grouping_keys": keys,
+        "month_column": month_col,
+        "rows": int(segment_df.shape[0]),
+        "groups": int(segment_df[keys].drop_duplicates().shape[0]) if keys else int(segment_df.shape[0]),
+        "future_targets": {
+            spec.get("name"): int(segment_df[spec.get("name")].notna().sum())
+            for spec in future_specs
+            if spec.get("name") in segment_df.columns
+        },
+    }
+
+    return segment_df, segment_meta
+
+
 # --- Feature Extraction ---
 def extract_street(address: str, cfg: Dict[str, Any]) -> str:
     """Extract and clean street name from a full address string."""
@@ -713,7 +925,11 @@ def derive_features(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     """Run configured derivation steps on the dataframe."""
     df = _derive_date_parts(df)
 
+    special_keys = {"buckets", "grouping", "aggregations", "future_targets"}
+
     for name, spec in config.items():
+        if name in special_keys:
+            continue
         if not spec.get("enabled", True):
             log("derive.step", status="skipped", name=name, reason="disabled")
             continue
@@ -806,4 +1022,8 @@ def derive_features(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
 
         warn("derive.step", name=name, reason="unknown_step")
 
+    if "buckets" in config:
+        df = run_step("derive.buckets", _apply_bucket_definitions, df, buckets_cfg=config.get("buckets", {}))
+
+    
     return df

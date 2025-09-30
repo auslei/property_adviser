@@ -14,9 +14,9 @@
 ## Structure
 ```
 property_adviser/feature/
-  config.py    # Typed config schema + loader
+  config.py    # Typed config schema + loader (supports multi-target batches)
   pipeline.py  # run_feature_selection orchestration + guardrails
-  cli.py       # Thin CLI + compatibility wrapper
+  cli.py       # Thin CLI / batch runner
   compute.py   # Metric computation helpers
 ```
 
@@ -31,6 +31,7 @@ property_adviser/feature/
 - Guardrails: drop ID-like columns, enforce family rules, prune highly correlated pairs, and annotate reasons in the shared scores table.
 - Manual overrides (`include`, `exclude`, `use_top_k`, `top_k`) always take precedence.
 - Optional RFECV elimination (configured via `elimination`): supports `max_features` (limit columns passed to RFE), `sample_rows` (row sampling for speed), and logs preprocessing + fit durations alongside summary scores.
+- Multi-target runs: define `targets` in `config/features.yml` to generate per-horizon outputs (each target writes to `base_output_dir/<target>/`).
 
 ## Outputs (`data/training/`)
 - `feature_scores.parquet` (or `.csv`): full metrics, selection flags, override reasons, and elimination metadata.
@@ -47,8 +48,9 @@ uv run pa-feature --config config/features.yml --scores-file feature_scores.parq
 ```python
 from property_adviser.feature import load_feature_selection_config, run_feature_selection
 
-config = load_feature_selection_config(Path("config/features.yml"))
-result = run_feature_selection(config, include=[], exclude=[], write_outputs=False)
+configs = load_feature_selection_config(Path("config/features.yml"))
+for cfg in configs:
+    run_feature_selection(cfg, include=[], exclude=[], write_outputs=True)
 ```
 - Returned `FeatureSelectionResult` exposes `.scores_table`, `.selected_columns`, `.X`, and `.y` so GUIs and automation stay in sync.
 

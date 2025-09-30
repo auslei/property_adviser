@@ -27,12 +27,16 @@ class DeriveStageConfig:
     config_path: Path
     output_path: Path
     metadata_path: Path
+    segment_output_path: Optional[Path] = None
+    detailed_output_path: Optional[Path] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "config_path": str(self.config_path),
             "output_path": str(self.output_path),
             "metadata_path": str(self.metadata_path),
+            "segment_output_path": str(self.segment_output_path) if self.segment_output_path else None,
+            "detailed_output_path": str(self.detailed_output_path) if self.detailed_output_path else None,
         }
 
 
@@ -90,6 +94,8 @@ class PreprocessConfig:
             config_path=resolve(derivation_cfg["config_path"]),
             output_path=resolve(derivation_cfg["output_path"]),
             metadata_path=resolve(derivation_cfg["metadata_path"]),
+            segment_output_path=resolve(derivation_cfg["segment_output_path"]) if derivation_cfg.get("segment_output_path") else None,
+            detailed_output_path=resolve(derivation_cfg["detailed_output_path"]) if derivation_cfg.get("detailed_output_path") else None,
         )
 
         options = mapping.get("options") or {}

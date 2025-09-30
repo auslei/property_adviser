@@ -32,11 +32,16 @@ def main():
     setup_logging(verbose=args.verbose)
     
     outcome = train_timeseries_model(config_path=args.config, overrides={"verbose": args.verbose})
-    # Concise console line; full details in returned outcome for GUI
-    print(f"Best: {outcome['best_model']}  "
-          f"Model: {outcome['best_model_path']}  "
-          f"Scores: {outcome['scores_path']}  "
-          f"ValMonth: {outcome['validation_month']}")
+    targets = outcome.get("targets", [])
+    for entry in targets:
+        print(
+            f"Target {entry['target']} → {entry['best_model']}  "
+            f"Model: {entry['best_model_path']}  "
+            f"Scores: {entry['scores_path']}  "
+            f"ValMonth: {entry['validation_month']}"
+        )
+    if outcome.get("report_path"):
+        print(f"Report: {outcome['report_path']}")
 
 
 if __name__ == "__main__":

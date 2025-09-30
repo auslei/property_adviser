@@ -15,20 +15,21 @@
 
 1. **Preprocessing (`property_adviser/preprocess`)**
    - Typed config loader (`load_preprocess_config`) + `run_preprocessing` keep CLI and automation aligned; CLI remains a thin wrapper.
-   - Cleaning normalises schema and dtype noise while derivation adds seasonality, suburb rolling stats, ratios, age features, and optional macro enrichments.
-   - Outputs land in `data/preprocess/cleaned.csv`, `derived.csv`, `metadata.json`, with optional `dropped_rows` audit.
+   - Cleaning normalises schema and dtype noise while derivation adds seasonality, suburb rolling stats, ratios, age features, configurable buckets, and optional macro enrichments.
+   - Segment builder rolls the dataset up to configurable grouping keys (suburb/property type/buckets) and generates future targets (e.g., `price_future_6m`, `price_future_12m`).
+   - Outputs land in `data/preprocess/cleaned.parquet`, `data/preprocess/segments.parquet`, optional `derived_detailed.parquet`, plus metadata/audit artefacts.
    - Interface and dataset expectations live in `property_adviser/preprocess/AGENTS.md`.
 
 2. **Feature Selection (`property_adviser/feature`)**
    - Typed config loader + pipeline record elapsed timings, normalise scores, and expose consistent guardrail logging.
-   - Supports correlation threshold or top-k selection, optional RFECV pruning with row/feature caps, and emits `feature_scores` plus X/y artefacts in the requested format.
-   - CLI: `uv run pa-feature --config config/features.yml --scores-file feature_scores.parquet`.
+   - Supports correlation threshold or top-k selection, optional RFECV pruning with row/feature caps, and emits `feature_scores` plus X/y artefacts per target (`base_output_dir/<target>/`).
+   - CLI iterates through all targets in `config/features.yml`: `uv run pa-feature --config config/features.yml --scores-file feature_scores.parquet`.
    - Implementation notes, elimination tuning, and API usage: `property_adviser/feature/AGENTS.md`.
 
 3. **Model Training (`property_adviser/train`)**
    - Typed configs (`load_training_config`) feed `run_training`, which logs per-stage timings and produces `TrainingResult` objects.
-   - Performs month-based train/validation split, applies manual feature overrides, and supports log-target training via a shared preprocessing pipeline.
-   - Persists timestamped bundles under `models/`, score summaries, and refreshed `feature_metadata.json`.
+   - Performs month-based train/validation split, applies manual feature overrides, and supports shared preprocessing pipelines per target.
+   - Persists timestamped bundles under `models/<target>/`, target-specific score summaries/metadata, and emits a consolidated `training_report_*.json` across targets.
    - Detailed workflow and extension tips in `property_adviser/train/AGENTS.md`.
 
 4. **Prediction (`property_adviser/predict`)**
@@ -63,7 +64,7 @@
 - **Logging**: emit structured events with `core.app_logging` (e.g., `feature_selection.complete`, `train.validation`) so pipelines remain traceable.
 - **Testing**: cover critical cleaning and derivation steps, guardrail logic, and scoring behaviour with unit tests; maintain golden fixtures for end-to-end reproducibility.
 
-### Recent Updates (2025-09-29 04:05:57Z)
-- Feature selection now supports optional RFECV elimination, richer logging, and configurable dataset exports.
-- Added `market_insights_app.py` Streamlit dashboard plus documentation so analysts can explore drivers, demand shifts, and price timelines.
-- Guardrails were hardened (correlation pruning respects categoricals, driver tab honours `exclude_columns`) and docs refreshed for the new workflow.
+### Recent Updates (2025-09-30 21:35:00Z)
+- Preprocessing now produces configurable property buckets, segment-level aggregates, and forward targets saved to `segments.parquet` (with detailed row-level snapshots retained separately).
+- Feature selection and model training process multiple targets/horizons per run, writing outputs to per-target directories and logging durations for each stage.
+- Training orchestrator emits a consolidated JSON report summarising best models and metrics across all configured targets for downstream monitoring.

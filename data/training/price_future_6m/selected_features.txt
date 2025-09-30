@@ -1,0 +1,5 @@
+saleYearMonth
+current_price_median
+avg_land_size
+avg_floor_size
+price_future_12m

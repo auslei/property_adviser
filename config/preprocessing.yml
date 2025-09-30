@@ -6,6 +6,8 @@ clean:
 derivation:
   config_path: config/pp_derive.yml
   output_path: data/preprocess/derived.parquet
+  segment_output_path: data/preprocess/segments.parquet
+  detailed_output_path: data/preprocess/derived_detailed.parquet
   metadata_path: data/preprocess/metadata.json
 
 # (optional) run flags

@@ -14,35 +14,34 @@
 ## Structure
 ```
 property_adviser/train/
-  config.py     # Typed configuration schema + loader
+  config.py     # Typed configuration schema + loader (multi-target aware)
   pipeline.py   # run_training orchestration + persistence
   cli.py        # CLI entry point (pa-train)
   model_training.py  # Compatibility wrapper around the pipeline
 ```
 
 ## Configuration (`config/model.yml`)
-- `task`, `target`, `log_target`
-- `input`: base path plus filenames for `X`, `y`, and optional `feature_scores`
-- `model_path.base`: directory for persisted artefacts
-- `split`: validation month logic (`validation_month`, `month_column`)
-- `models`: enabled estimators and GridSearch parameter grids
+- Declare shared defaults once (`models`, `model_path.base`, `task`, `log_target` etc.).
+- List training targets under `targets`, each with its own `name`, `target` column, `input` paths, optional `split` overrides, and per-target model tweaks.
+- Artefacts are written to `<model_path.base>/<target>/` unless overridden.
 
-Keep configuration declarative; new behaviour should be toggled via YAML rather than code edits.
+Keep configuration declarative; extend or override behaviour via YAML rather than code edits.
 
 ## Workflow Summary
-1. Load `TrainingConfig` via `load_training_config`, which resolves paths relative to the repo root (`PROJECT_ROOT`) and honours overrides.
+1. Load one or more `TrainingConfig` instances via `load_training_config`; each represents a distinct target/horizon.
 2. Read X/y (and optional feature scores) via `core.io.load_parquet_or_csv`, applying manual selections before modelling.
 3. Choose the validation month (requested or latest) and perform a month-based split, dropping the month column from model inputs.
 4. Build a single preprocessing pipeline (numeric: median + scaler, categorical: mode + one-hot) reused across every estimator.
-5. For each enabled model, run `GridSearchCV` (default R² scoring, 3-fold) inside a timed block; validation metrics and CV scores are logged per candidate.
-6. Persist the winning model bundle, score summaries, and feature metadata (including imputation defaults) with timestamped filenames.
-7. Emit `train.complete` with total runtime, best model, and validation month; return a `TrainingResult` dataclass for downstream use.
+5. For each enabled model, run `GridSearchCV` (default R² scoring, 3-fold) inside a timed block; validation metrics and CV scores are logged per candidate and per target.
+6. Persist the winning model bundle, score summaries, and feature metadata (including imputation defaults) with timestamped filenames under the target’s artefact directory.
+7. Emit `train.complete` with total runtime, best model, and validation month; return a `TrainingResult` dataclass. `train_timeseries_model` aggregates these results and emits a holistic JSON report.
 
 ## Outputs
-- `models/best_model_<name>_<timestamp>.joblib`
-- `models/best_model.joblib` (canonical symlink/copy) and `models/best_model.json`
-- `models/model_scores_<timestamp>.csv`
-- `data/training/feature_metadata.json`
+- `models/<target>/best_model_<estimator>_<timestamp>.joblib`
+- `models/<target>/best_model.joblib` and `models/<target>/best_model.json`
+- `models/<target>/model_scores_<timestamp>.csv`
+- `data/training/<target>/feature_metadata.json`
+- `models/training_report_<timestamp>.json` – consolidated summary across all targets.
 
 All writes use `core.io.ensure_dir` + `joblib.dump`/`json.dump` wrappers for consistency.
 
@@ -57,9 +56,10 @@ uv run pa-train --config config/model.yml --verbose
 from pathlib import Path
 from property_adviser.train import load_training_config, run_training
 
-config = load_training_config(Path("config/model.yml"))
-result = run_training(config)
-print(result.best_model, result.validation_month)
+configs = load_training_config(Path("config/model.yml"))
+for cfg in configs:
+    result = run_training(cfg)
+    print(cfg.name, result.best_model, result.validation_month)
 ```
 
 ## Handover to Prediction

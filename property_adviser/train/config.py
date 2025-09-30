@@ -31,6 +31,7 @@ class ModelConfig:
 
 @dataclass(frozen=True)
 class TrainingConfig:
+    name: str
     task: str
     target: str
     log_target: bool
@@ -62,17 +63,14 @@ def _resolve_path(value: str, *, project_root: Path, config_dir: Path) -> Path:
     return project_root / path
 
 
-def load_training_config(
-    config_path: Optional[Path] = None,
-    overrides: Optional[Mapping[str, Any]] = None,
+def _build_training_config(
+    raw: Mapping[str, Any],
+    *,
+    name: str,
+    project_root: Path,
+    config_dir: Path,
+    append_name: bool,
 ) -> TrainingConfig:
-    cfg_path = config_path or (PROJECT_ROOT / "config" / "model.yml")
-    config_dir = cfg_path.parent
-    project_root = config_dir.parent if config_dir.name == "config" else config_dir
-    raw = load_config(cfg_path)
-    if overrides:
-        raw = _merge_dicts(raw, overrides)
-
     input_cfg = raw.get("input", {})
     base_dir = _resolve_path(input_cfg.get("path", "data/training"), project_root=project_root, config_dir=config_dir)
     base_dir = base_dir if base_dir.is_absolute() else base_dir.resolve()
@@ -93,6 +91,12 @@ def load_training_config(
 
     model_path_cfg = raw.get("model_path", {})
     artifacts_dir = _resolve_path(model_path_cfg.get("base", "models"), project_root=project_root, config_dir=config_dir)
+    append_flag = model_path_cfg.get("append_target", append_name)
+    subdir = model_path_cfg.get("subdir")
+    if append_flag:
+        artifacts_dir = artifacts_dir / name
+    if subdir:
+        artifacts_dir = artifacts_dir / subdir
 
     split_cfg = raw.get("split", {})
     split = SplitConfig(
@@ -101,18 +105,26 @@ def load_training_config(
     )
 
     models_cfg = raw.get("models") or {
-        name: {"enabled": True, "grid": {}}
-        for name in ("LinearRegression", "Ridge", "Lasso", "ElasticNet", "RandomForestRegressor", "GradientBoostingRegressor")
+        model_name: {"enabled": True, "grid": {}}
+        for model_name in (
+            "LinearRegression",
+            "Ridge",
+            "Lasso",
+            "ElasticNet",
+            "RandomForestRegressor",
+            "GradientBoostingRegressor",
+        )
     }
     models: Dict[str, ModelConfig] = {}
-    for name, entry in models_cfg.items():
+    for model_name, entry in models_cfg.items():
         enabled = bool(entry.get("enabled", True))
         grid = dict(entry.get("grid", {}))
-        models[name] = ModelConfig(enabled=enabled, grid=grid)
+        models[model_name] = ModelConfig(enabled=enabled, grid=grid)
 
     return TrainingConfig(
+        name=name,
         task=raw.get("task", "regression"),
-        target=raw.get("target", "salePrice"),
+        target=raw.get("target", name),
         log_target=bool(raw.get("log_target", False)),
         verbose=bool(raw.get("verbose", False)),
         input=InputConfig(
@@ -125,6 +137,51 @@ def load_training_config(
         artifacts_dir=artifacts_dir,
         models=models,
     )
+
+
+def load_training_config(
+    config_path: Optional[Path] = None,
+    overrides: Optional[Mapping[str, Any]] = None,
+) -> List[TrainingConfig]:
+    cfg_path = config_path or (PROJECT_ROOT / "config" / "model.yml")
+    config_dir = cfg_path.parent
+    project_root = config_dir.parent if config_dir.name == "config" else config_dir
+    raw = load_config(cfg_path)
+    if overrides:
+        raw = _merge_dicts(raw, overrides)
+
+    targets_cfg = raw.get("targets")
+    if targets_cfg:
+        configs: List[TrainingConfig] = []
+        for target_cfg in targets_cfg:
+            if not isinstance(target_cfg, Mapping):
+                raise ValueError("Each target entry must be a mapping.")
+            merged = _merge_dicts(dict(raw), target_cfg)
+            target_name = merged.pop("name", None) or merged.get("target")
+            if not target_name:
+                raise KeyError("Each target entry requires a 'name'.")
+            merged["target"] = merged.get("target", target_name)
+            configs.append(
+                _build_training_config(
+                    merged,
+                    name=str(target_name),
+                    project_root=project_root,
+                    config_dir=config_dir,
+                    append_name=True,
+                )
+            )
+        return configs
+
+    name = raw.get("name") or raw.get("target", "default")
+    return [
+        _build_training_config(
+            raw,
+            name=str(name),
+            project_root=project_root,
+            config_dir=config_dir,
+            append_name=False,
+        )
+    ]
 
 
 __all__ = [
