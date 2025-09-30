@@ -26,10 +26,10 @@
    - Implementation notes, elimination tuning, and API usage: `property_adviser/feature/AGENTS.md`.
 
 3. **Model Training (`property_adviser/train`)**
-   - CLI: `uv run pa-train --config config/model.yml --verbose`.
-   - Performs month-based train/validation split, wraps estimators in a shared preprocessing pipeline, respects manual feature selections, and supports log-target training.
-   - Outputs timestamped bundles under `models/` plus score summaries (`model_scores_*.csv`) and feature metadata.
-   - Detailed workflow in `property_adviser/train/AGENTS.md`.
+   - Typed configs (`load_training_config`) feed `run_training`, which logs per-stage timings and produces `TrainingResult` objects.
+   - Performs month-based train/validation split, applies manual feature overrides, and supports log-target training via a shared preprocessing pipeline.
+   - Persists timestamped bundles under `models/`, score summaries, and refreshed `feature_metadata.json`.
+   - Detailed workflow and extension tips in `property_adviser/train/AGENTS.md`.
 
 4. **Prediction (`property_adviser/predict`)**
    - Loads persisted bundles (`models/best_model.joblib`) and reconstructs the feature frame expected by training.

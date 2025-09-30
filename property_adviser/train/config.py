@@ -1,0 +1,136 @@
+"""Typed configuration helpers for model training."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Mapping, Optional
+
+from property_adviser.config import PROJECT_ROOT
+from property_adviser.core.config import load_config
+
+
+@dataclass(frozen=True)
+class InputConfig:
+    base: Path
+    X: Path
+    y: Path
+    feature_scores: Optional[Path]
+
+
+@dataclass(frozen=True)
+class SplitConfig:
+    validation_month: Optional[str]
+    month_column: str
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    enabled: bool
+    grid: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class TrainingConfig:
+    task: str
+    target: str
+    log_target: bool
+    verbose: bool
+    input: InputConfig
+    split: SplitConfig
+    artifacts_dir: Path
+    models: Dict[str, ModelConfig]
+
+
+def _merge_dicts(base: Dict[str, Any], overrides: Mapping[str, Any]) -> Dict[str, Any]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        if key in merged and isinstance(merged[key], Mapping) and isinstance(value, Mapping):
+            merged[key] = _merge_dicts(dict(merged[key]), value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _resolve_path(value: str, *, project_root: Path, config_dir: Path) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    parts = path.parts
+    if parts and parts[0] == config_dir.name:
+        anchor = config_dir.parent
+        return (anchor / path) if anchor else (config_dir / path)
+    return project_root / path
+
+
+def load_training_config(
+    config_path: Optional[Path] = None,
+    overrides: Optional[Mapping[str, Any]] = None,
+) -> TrainingConfig:
+    cfg_path = config_path or (PROJECT_ROOT / "config" / "model.yml")
+    config_dir = cfg_path.parent
+    project_root = config_dir.parent if config_dir.name == "config" else config_dir
+    raw = load_config(cfg_path)
+    if overrides:
+        raw = _merge_dicts(raw, overrides)
+
+    input_cfg = raw.get("input", {})
+    base_dir = _resolve_path(input_cfg.get("path", "data/training"), project_root=project_root, config_dir=config_dir)
+    base_dir = base_dir if base_dir.is_absolute() else base_dir.resolve()
+
+    def resolve_under_base(value: Optional[Any]) -> Optional[Path]:
+        if not value:
+            return None
+        path = Path(value)
+        if path.is_absolute():
+            return path
+        return base_dir / path
+
+    X_path = resolve_under_base(input_cfg.get("X", "X.parquet"))
+    y_path = resolve_under_base(input_cfg.get("y", "y.parquet"))
+    if X_path is None or y_path is None:
+        raise ValueError("Model config must specify input.X and input.y paths.")
+    feature_scores_path = resolve_under_base(input_cfg.get("feature_scores"))
+
+    model_path_cfg = raw.get("model_path", {})
+    artifacts_dir = _resolve_path(model_path_cfg.get("base", "models"), project_root=project_root, config_dir=config_dir)
+
+    split_cfg = raw.get("split", {})
+    split = SplitConfig(
+        validation_month=split_cfg.get("validation_month"),
+        month_column=split_cfg.get("month_column", "saleYearMonth"),
+    )
+
+    models_cfg = raw.get("models") or {
+        name: {"enabled": True, "grid": {}}
+        for name in ("LinearRegression", "Ridge", "Lasso", "ElasticNet", "RandomForestRegressor", "GradientBoostingRegressor")
+    }
+    models: Dict[str, ModelConfig] = {}
+    for name, entry in models_cfg.items():
+        enabled = bool(entry.get("enabled", True))
+        grid = dict(entry.get("grid", {}))
+        models[name] = ModelConfig(enabled=enabled, grid=grid)
+
+    return TrainingConfig(
+        task=raw.get("task", "regression"),
+        target=raw.get("target", "salePrice"),
+        log_target=bool(raw.get("log_target", False)),
+        verbose=bool(raw.get("verbose", False)),
+        input=InputConfig(
+            base=base_dir,
+            X=X_path,
+            y=y_path,
+            feature_scores=feature_scores_path,
+        ),
+        split=split,
+        artifacts_dir=artifacts_dir,
+        models=models,
+    )
+
+
+__all__ = [
+    "InputConfig",
+    "SplitConfig",
+    "ModelConfig",
+    "TrainingConfig",
+    "load_training_config",
+]
