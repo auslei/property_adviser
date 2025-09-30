@@ -1,9 +1,13 @@
 # src/common/io.py
+from __future__ import annotations
+
+import json
 from pathlib import Path
+from typing import Any, Iterable, List
+
 import pandas as pd
-from typing import List
-from .app_logging import log, warn
-import os
+
+from .app_logging import log
 
 
 def save_parquet_or_csv(df: pd.DataFrame, path: Path) -> Path:
@@ -12,6 +16,7 @@ def save_parquet_or_csv(df: pd.DataFrame, path: Path) -> Path:
     Returns the final path used. Raises ValueError if extension unsupported.
     """
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     ext = path.suffix.lower()
 
     if ext == ".parquet":
@@ -49,15 +54,25 @@ def load_parquet_or_csv(path: Path) -> pd.DataFrame:
     raise ValueError(f"Unsupported file extension '{ext}'. Use .parquet or .csv.")
 
 
-def write_list(items: List[str], path) -> None:
+def write_list(items: Iterable[str], path: Path | str) -> None:
     """Write a list of strings to a text file, one per line. Overwrites the file if it exists."""
     path = Path(path)
-    with path.open("w") as f:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
         for item in items:
             f.write(f"{item}\n")
 
+def ensure_dir(path: Path | str) -> Path:
+    """Ensure a directory exists; return the resolved Path."""
+    path_obj = Path(path)
+    path_obj.mkdir(parents=True, exist_ok=True)
+    return path_obj
 
-def ensure_dir(path: str) -> str:
-    """Ensure a directory exists; return the path."""
-    os.makedirs(path, exist_ok=True)
-    return path
+
+def read_json(path: Path | str) -> Any:
+    """Load JSON content from a file, raising if the file does not exist."""
+    path_obj = Path(path)
+    if not path_obj.exists():
+        raise FileNotFoundError(f"JSON file not found: {path_obj}")
+    with path_obj.open("r", encoding="utf-8") as handle:
+        return json.load(handle)

@@ -1,13 +1,11 @@
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import joblib
 import numpy as np
 import pandas as pd
 
-from property_adviser.config import MODELS_DIR, TRAINING_DIR
+from property_adviser.core.artifacts import load_model_artifacts
 from property_adviser.predict.feature_store import (
     fetch_reference_features,
     list_streets,
@@ -19,30 +17,8 @@ def load_trained_model() -> tuple:
     """
     Load the trained model, its metadata and feature information
     """
-    model_candidates = [
-        MODELS_DIR / "best_model.joblib",
-        MODELS_DIR / "best_model.pkl",
-    ]
-    model_path = next((p for p in model_candidates if p.exists()), model_candidates[0])
-    if not model_path.exists():
-        raise FileNotFoundError("Trained model not found. Run model training first.")
-    
-    metadata_path = TRAINING_DIR / "feature_metadata.json"
-    if not metadata_path.exists():
-        raise FileNotFoundError("Feature metadata not found. Run feature selection first.")
-    
-    bundle = joblib.load(model_path)
-    if isinstance(bundle, dict):
-        if "model" not in bundle or not hasattr(bundle["model"], "predict"):
-            raise ValueError(
-                "Model bundle is missing a usable 'model' object. Did training finish successfully?"
-            )
-        model = bundle["model"]
-    else:
-        model = bundle
-    metadata = json.loads(metadata_path.read_text())
-    
-    return model, metadata
+    artifacts = load_model_artifacts()
+    return artifacts.model, artifacts.metadata
 
 
 def _prepare_prediction_data(

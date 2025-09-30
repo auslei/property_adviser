@@ -26,11 +26,16 @@
 
 ### `io.py`
 - Persistence helpers (`save_parquet_or_csv`, `load_parquet_or_csv`, `write_list`, `ensure_dir`).
-- Guarantees artefacts are written/read consistently across modules.
+- Guarantees artefacts are written/read consistently across modules and now includes `read_json` for structured configs.
 
 ### `runner.py`
 - `run_step` context for executing transformation functions with timing, logging, and DataFrame validation.
 - Promote new orchestration helpers here when pipelines need shared behaviour.
+
+### `artifacts.py`
+- Normalised accessors for persisted training artefacts.
+- `load_model_artifacts` returns a dataclass bundling the fitted pipeline, feature metadata, and optional model summary JSON.
+- `load_feature_metadata` and `locate_model_path` provide narrow reusables so prediction/apps can rely on consistent filesystem conventions.
 
 ## Maintenance Checklist
 1. Keep APIs stable; if a breaking change is unavoidable, update all consumers and document migration steps.

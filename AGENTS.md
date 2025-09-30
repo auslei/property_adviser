@@ -38,6 +38,7 @@
 
 ### Core Module (`property_adviser/core`)
 - Centralises shared behaviours: logging, configuration loading, filesystem paths, IO helpers, and runner utilities.
+- Model/pipeline artefact loaders live alongside these utilities (`core/artifacts.py`) so prediction and apps fetch bundles the same way.
 - New functionality that benefits multiple stages should live here to keep modules lean and coupled only through well-defined interfaces.
 - Documentation resides in `property_adviser/core/AGENTS.md`.
 
