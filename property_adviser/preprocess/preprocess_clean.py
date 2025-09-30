@@ -234,6 +234,7 @@ def simplify_property_type(raw: Any, cfg: Dict[str, Any]) -> str:
 # ---------- drop audit helpers ----------
 _DROPPED_CHUNKS: List[pd.DataFrame] = []
 
+
 def _filter_with_reason(df: pd.DataFrame, mask: pd.Series, reason: str) -> pd.DataFrame:
     """Keep rows where mask is True; record dropped rows with a reason."""
     if mask.dtype != bool or mask.shape[0] != df.shape[0]:
@@ -244,26 +245,25 @@ def _filter_with_reason(df: pd.DataFrame, mask: pd.Series, reason: str) -> pd.Da
         _DROPPED_CHUNKS.append(dropped)
     return df.loc[mask].copy()
 
-
-def _emit_drop_audit_if_configured(cleaning_cfg: Dict[str, Any]) -> None:
-    """Optionally write a parquet audit of dropped rows if a path is configured."""
+def _emit_drop_audit(audit_path: Optional[Path]) -> None:
+    """Write a parquet audit of dropped rows when a path is supplied."""
     if not _DROPPED_CHUNKS:
         return
-    path_key = "dropped_rows_path"
-    if path_key in cleaning_cfg:
-        out = Path(cleaning_cfg[path_key])
-        audit = pd.concat(_DROPPED_CHUNKS, ignore_index=True)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        audit.to_parquet(out, index=False)
-        log("rows.audit_written", path=str(out), rows=int(audit.shape[0]))
-    else:
-        warn("rows.audit_skipped", reason="no_dropped_rows_path_in_config", dropped_chunks=len(_DROPPED_CHUNKS))
+    if audit_path is None:
+        warn("rows.audit_skipped", reason="no_dropped_rows_path", dropped_chunks=len(_DROPPED_CHUNKS))
+        return
+
+    out = Path(audit_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    audit = pd.concat(_DROPPED_CHUNKS, ignore_index=True)
+    audit.to_parquet(out, index=False)
+    log("rows.audit_written", path=str(out), rows=int(audit.shape[0]))
 
 
 # ----------------------------
 # Public pipeline
 # ----------------------------
-def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
+def clean_data(config: Dict[str, Any], *, dropped_rows_path: Optional[Path] = None) -> pd.DataFrame:
     """
     Phase 1: CLEANING
       1) Read CSVs (strictly from config.data_source)
@@ -276,6 +276,8 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
       8) Bucket high-cardinality categoricals (if configured)
     """
     # --- config (strict) ---
+    _DROPPED_CHUNKS.clear()
+
     ds = config["data_source"]
     min_non_null = float(config["min_non_null_fraction"])
     special_to_ascii: Dict[str, str] = config["special_to_ascii"]
@@ -365,6 +367,9 @@ def clean_data(config: Dict[str, Any]) -> pd.DataFrame:
         log("categorical.bucket", rules=rules)
 
     # --- emit drop audit if requested ---
-    _emit_drop_audit_if_configured(config)
+    audit_path = dropped_rows_path
+    if audit_path is None and config.get("dropped_rows_path"):
+        audit_path = Path(config["dropped_rows_path"])
+    _emit_drop_audit(audit_path)
 
     return combined

@@ -14,7 +14,7 @@
    - See `property_adviser/macro/AGENTS.md` for source contracts and configuration patterns.
 
 1. **Preprocessing (`property_adviser/preprocess`)**
-   - `preprocess/cli.py` orchestrates cleaning and derivation using `config/preprocessing.yml`.
+   - Typed config loader (`load_preprocess_config`) + `run_preprocessing` keep CLI and automation aligned; CLI remains a thin wrapper.
    - Cleaning normalises schema and dtype noise while derivation adds seasonality, suburb rolling stats, ratios, age features, and optional macro enrichments.
    - Outputs land in `data/preprocess/cleaned.csv`, `derived.csv`, `metadata.json`, with optional `dropped_rows` audit.
    - Interface and dataset expectations live in `property_adviser/preprocess/AGENTS.md`.

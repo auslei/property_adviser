@@ -152,22 +152,337 @@
     "openInRpdata",
     "sourceFile",
     "agencyBrand",
-    "street"
+    "street",
+    "propertyAgeBand"
   ],
   "sources": [],
-  "configuration": {
-    "clean": {
-      "config_path": "config/pp_clean.yml",
-      "output_path": "data/preprocess/cleaned.parquet",
-      "dropped_rows_path": "data/preprocess/dropped_rows.parquet"
+  "config": {
+    "preprocess": {
+      "clean": {
+        "config_path": "/mnt/g/dev/property_analyst/config/pp_clean.yml",
+        "output_path": "/mnt/g/dev/property_analyst/data/preprocess/cleaned.parquet",
+        "dropped_rows_path": "/mnt/g/dev/property_analyst/data/preprocess/dropped_rows.parquet"
+      },
+      "derivation": {
+        "config_path": "/mnt/g/dev/property_analyst/config/pp_derive.yml",
+        "output_path": "/mnt/g/dev/property_analyst/data/preprocess/derived.parquet",
+        "metadata_path": "/mnt/g/dev/property_analyst/data/preprocess/metadata.json"
+      },
+      "options": {
+        "verbose": true
+      },
+      "source_path": "/mnt/g/dev/property_analyst/config/preprocessing.yml"
+    },
+    "cleaning": {
+      "data_source": {
+        "path": "data/raw",
+        "pattern": "*.csv",
+        "encoding": "utf-8-sig"
+      },
+      "min_non_null_fraction": 0.35,
+      "special_to_ascii": {
+        "²": "2"
+      },
+      "normalise_text_columns": [
+        "streetAddress",
+        "propertyType"
+      ],
+      "numeric_candidates": [
+        "bed",
+        "bath",
+        "car",
+        "landSizeM2",
+        "floorSizeM2",
+        "yearBuilt",
+        "salePrice",
+        "postcode"
+      ],
+      "bucketing_rules": {
+        "agency": 20,
+        "landUse": 15,
+        "propertyType": 15
+      },
+      "required_columns": [
+        "salePrice",
+        "bed",
+        "bath"
+      ],
+      "category_mappings": {
+        "propertyType": {
+          "House": [
+            "house",
+            "townhouse",
+            "dwelling"
+          ],
+          "Unit": [
+            "unit",
+            "villa",
+            "duplex"
+          ],
+          "Apartment": [
+            "flat",
+            "studio"
+          ]
+        },
+        "agencyBrand": {
+          "source": "agency",
+          "default": "Other",
+          "mode": "contains",
+          "rules": {
+            "Noel Jones": [
+              "NOEL JONES"
+            ],
+            "Barry Plant": [
+              "BARRY PLANT"
+            ],
+            "Jellis Craig": [
+              "JELLIS CRAIG"
+            ],
+            "Ray White": [
+              "RAY WHITE"
+            ],
+            "Harcourts": [
+              "HARCOURTS"
+            ],
+            "Woodards": [
+              "WOODARDS"
+            ],
+            "Biggin & Scott": [
+              "BIGGIN & SCOTT"
+            ],
+            "Fletchers": [
+              "FLETCHERS"
+            ],
+            "Unknown": [
+              "UNKNOWN"
+            ],
+            "Other": [
+              "OTHER"
+            ]
+          }
+        },
+        "developmentZone": {
+          "RGZ1": [
+            "residential growth zone - schedule 1",
+            "residential growth zone schedule 1",
+            "rgz1"
+          ],
+          "RGZ2": [
+            "residential growth zone - schedule 2",
+            "residential growth zone schedule 2",
+            "rgz2"
+          ],
+          "RGZ3": [
+            "residential growth zone - schedule 3",
+            "residential growth zone schedule 3",
+            "rgz3"
+          ],
+          "NRZ1": [
+            "neighbourhood residential zone - schedule 1",
+            "neighbourhood residential zone schedule 1",
+            "nrz1"
+          ],
+          "NRZ2": [
+            "neighbourhood residential zone - schedule 2",
+            "neighbourhood residential zone schedule 2",
+            "nrz2"
+          ],
+          "NRZ3": [
+            "neighbourhood residential zone - schedule 3",
+            "neighbourhood residential zone schedule 3",
+            "nrz3"
+          ],
+          "NRZ4": [
+            "neighbourhood residential zone - schedule 4",
+            "neighbourhood residential zone schedule 4",
+            "nrz4"
+          ],
+          "GRZ1": [
+            "general residential zone - schedule 1",
+            "general residential zone schedule 1",
+            "grz1"
+          ],
+          "GRZ2": [
+            "general residential zone - schedule 2",
+            "general residential zone schedule 2",
+            "grz2"
+          ],
+          "GRZ3": [
+            "general residential zone - schedule 3",
+            "general residential zone schedule 3",
+            "grz3"
+          ],
+          "C1Z": [
+            "commercial 1 zone",
+            "c1z"
+          ],
+          "C2Z": [
+            "commercial 2 zone",
+            "c2z"
+          ],
+          "MUZ": [
+            "mixed use zone",
+            "muz"
+          ],
+          "IN1Z": [
+            "industrial 1 zone",
+            "in1z"
+          ],
+          "IN2Z": [
+            "industrial 2 zone",
+            "in2z"
+          ],
+          "IN3Z": [
+            "industrial 3 zone",
+            "in3z"
+          ],
+          "LDRZ": [
+            "low density residential zone",
+            "ldrz"
+          ],
+          "TZ": [
+            "township zone",
+            "tz"
+          ],
+          "UGZ1": [
+            "urban growth zone - schedule 1",
+            "urban growth zone schedule 1",
+            "ugz1"
+          ],
+          "UGZ2": [
+            "urban growth zone - schedule 2",
+            "urban growth zone schedule 2",
+            "ugz2"
+          ],
+          "UGZ3": [
+            "urban growth zone - schedule 3",
+            "urban growth zone schedule 3",
+            "ugz3"
+          ]
+        }
+      },
+      "dropped_rows_path": "/mnt/g/dev/property_analyst/data/preprocess/dropped_rows.parquet"
     },
     "derivation": {
-      "config_path": "config/pp_derive.yml",
-      "output_path": "data/preprocess/derived.parquet",
-      "metadata_path": "data/preprocess/metadata.json"
-    },
-    "options": {
-      "verbose": true
+      "street": {
+        "enabled": true,
+        "source": "streetAddress",
+        "output": "street",
+        "drop_unknown": false,
+        "config": {
+          "unknown_value": "Unknown"
+        }
+      },
+      "month_index": {
+        "enabled": true,
+        "month_col": "saleYearMonth",
+        "output": "month_id",
+        "offset": 0
+      },
+      "month_cyclical": {
+        "enabled": true,
+        "month_col": "saleMonth",
+        "out_prefix": "saleMonth"
+      },
+      "suburb_time_aggregates": {
+        "enabled": true,
+        "suburb_col": "suburb",
+        "month_col": "saleYearMonth",
+        "price_col": "salePrice",
+        "windows": [
+          3,
+          6,
+          12
+        ],
+        "prefix": "suburb",
+        "type_col": "propertyType",
+        "type_map": {
+          "HOUSE": "house",
+          "TOWNHOUSE": "house"
+        },
+        "type_default": "other",
+        "type_tags": [
+          "house",
+          "other"
+        ]
+      },
+      "ratio_land_per_bed": {
+        "enabled": true,
+        "fn": "ratio",
+        "numerator": "landSize",
+        "denominator": "bed_plus_one",
+        "output": "land_per_bed",
+        "drop_na": true
+      },
+      "ratio_floor_per_bed": {
+        "enabled": true,
+        "fn": "ratio",
+        "numerator": "propertySize",
+        "denominator": "bed_plus_one",
+        "output": "floor_per_bed",
+        "drop_na": true
+      },
+      "ratio_car_per_bed": {
+        "enabled": true,
+        "fn": "ratio",
+        "numerator": "car",
+        "denominator": "bed_plus_one",
+        "output": "car_per_bed",
+        "drop_na": true
+      },
+      "ratio_bed_bath": {
+        "enabled": true,
+        "fn": "ratio",
+        "numerator": "bed",
+        "denominator": "bath_plus_one",
+        "output": "bed_bath_ratio",
+        "drop_na": true
+      },
+      "price_per_area_land": {
+        "enabled": true,
+        "fn": "price_per_area",
+        "price_col": "salePrice",
+        "area_col": "landSize",
+        "output": "price_per_sqm_land",
+        "clip_min": 0.0,
+        "drop_na": true
+      },
+      "price_per_area_floor": {
+        "enabled": true,
+        "fn": "price_per_area",
+        "price_col": "salePrice",
+        "area_col": "propertySize",
+        "output": "price_per_sqm_floor",
+        "clip_min": 0.0,
+        "drop_na": true
+      },
+      "relative_pricing": {
+        "enabled": true,
+        "price_col": "salePrice",
+        "suburb_col": "suburb",
+        "month_col": "saleYearMonth",
+        "suburb_median_col": "suburb_price_median_current",
+        "region_col": "region",
+        "street_col": "street",
+        "min_samples": 5,
+        "output_prefix": "rel"
+      },
+      "property_age": {
+        "enabled": true,
+        "year_built_col": "yearBuilt",
+        "sale_year_col": "saleYear",
+        "output": "propertyAge",
+        "min_age": 0
+      },
+      "age_bands": {
+        "enabled": true,
+        "age_col": "propertyAge",
+        "output": "propertyAgeBand",
+        "bands": [
+          5,
+          20
+        ]
+      }
     }
   }
 }

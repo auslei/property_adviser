@@ -2,7 +2,7 @@
 
 ## Purpose & Scope
 - Transform raw property transactions into a feature-ready dataset by running deterministic cleaning and derivation steps.
-- Offer a unified interface through `preprocess/cli.py` and a small set of helper functions consumed by notebooks or automation.
+- Offer a unified interface through typed configs (`PreprocessConfig`) and `run_preprocessing`, keeping CLIs and automation aligned.
 - Lean on `property_adviser.core` for configuration, logging, IO, and step orchestration.
 
 ## Design Commitments
@@ -14,7 +14,9 @@
 ## Structure
 ```
 property_adviser/preprocess/
-  cli.py               # Orchestrates the pipeline, handles config + logging
+  config.py            # Typed config schema + loader
+  pipeline.py          # run_preprocessing orchestration + metadata builder
+  cli.py               # CLI / thin wrappers around the pipeline
   preprocess_clean.py  # Cleaning stage
   preprocess_derive.py # Derivation stage
 ```
@@ -46,13 +48,18 @@ All files are written using `property_adviser.core.io.save_parquet_or_csv`:
 
 Schemas and dtype expectations are defined in `docs/COMMON.md`; update that contract if you alter outputs.
 
+## Interfaces
+- `load_preprocess_config(path)` → `PreprocessConfig`
+- `run_preprocessing(config, write_outputs=True)` → `PreprocessResult`
+- Back-compat helper `preprocess(mapping)` ingests an already-loaded YAML mapping and returns the derived dataset path.
+
 ## CLI
 ```bash
 uv run python -m property_adviser.preprocess.cli --config config/preprocessing.yml --verbose
 # or
 uv run pa-preprocess --config config/preprocessing.yml --verbose
 ```
-- The CLI wires logging via `core.app_logging` and validates artefact paths before execution.
+- The CLI wires logging via `core.app_logging`, loads typed config, and persists artefacts using the shared pipeline implementation.
 
 ## Handover to Feature Selection
 - Derived dataset must include the target listed in `config/features.yml` and all engineered predictors with consistent dtypes.

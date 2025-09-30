@@ -8,7 +8,7 @@ from typing import List, Tuple
 from property_adviser.core.app_logging import log, log_exc, setup_logging
 from property_adviser.core.config import load_config
 from property_adviser.feature.cli import run_feature_selection
-from property_adviser.preprocess.cli import preprocess
+from property_adviser.preprocess import load_preprocess_config, run_preprocessing
 from property_adviser.train.model_training import train_timeseries_model
 
 
@@ -29,10 +29,10 @@ def run_full_pipeline(
     stages: List[Tuple[str, Path | None]] = []
 
     try:
-        pre_cfg = load_config(preprocess_config)
-        derived_path = preprocess(pre_cfg)
-        stages.append(("preprocess", Path(derived_path)))
-        log("pipeline.preprocess_complete", path=str(derived_path))
+        pre_cfg = load_preprocess_config(preprocess_config)
+        preprocess_result = run_preprocessing(pre_cfg, write_outputs=True)
+        stages.append(("preprocess", preprocess_result.derived_path))
+        log("pipeline.preprocess_complete", path=str(preprocess_result.derived_path))
     except Exception as exc:  # pragma: no cover - we want to bubble up
         log_exc("pipeline.preprocess_failed", exc)
         raise
