@@ -26,7 +26,7 @@ Supporting config lives under `config/`:
 - `config/pp_derive.yml`
 
 ## Cleaning (`preprocess_clean.py`)
-- Standardises categorical noise (e.g., `house`, `House`, `Town House` → `House`).
+- Standardises categorical noise (e.g., `house`, `House`, `Town House` → `House`). Case-insensitive keyword matching supports optional defaults via `default` / `preserve_unmatched` flags so unmatched values can fall back to labels like `Unknown`.
 - Renames source columns to canonical names and coerces numeric dtypes.
 - Optionally records dropped rows to the configured audit location.
 

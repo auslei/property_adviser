@@ -185,7 +185,10 @@
       },
       "normalise_text_columns": [
         "streetAddress",
-        "propertyType"
+        "propertyType",
+        "agency",
+        "landUse",
+        "developmentZone"
       ],
       "numeric_candidates": [
         "bed",
@@ -197,11 +200,7 @@
         "salePrice",
         "postcode"
       ],
-      "bucketing_rules": {
-        "agency": 20,
-        "landUse": 15,
-        "propertyType": 15
-      },
+      "bucketing_rules": null,
       "required_columns": [
         "salePrice",
         "bed",
@@ -209,20 +208,26 @@
       ],
       "category_mappings": {
         "propertyType": {
-          "House": [
-            "house",
-            "townhouse",
-            "dwelling"
-          ],
-          "Unit": [
-            "unit",
-            "villa",
-            "duplex"
-          ],
-          "Apartment": [
-            "flat",
-            "studio"
-          ]
+          "source": "propertyType",
+          "default": "Unknown",
+          "preserve_unmatched": false,
+          "mode": "contains",
+          "rules": {
+            "House": [
+              "house",
+              "townhouse",
+              "dwelling"
+            ],
+            "Unit": [
+              "unit",
+              "villa",
+              "duplex"
+            ],
+            "Apartment": [
+              "flat",
+              "studio"
+            ]
+          }
         },
         "agencyBrand": {
           "source": "agency",

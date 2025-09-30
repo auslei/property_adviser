@@ -6,7 +6,7 @@ data_source:
 min_non_null_fraction: 0.35
 special_to_ascii:
   "²": "2"
-normalise_text_columns: [streetAddress, propertyType]
+normalise_text_columns: [streetAddress, propertyType, agency, landUse, developmentZone]
 
 numeric_candidates:
   - bed
@@ -19,9 +19,9 @@ numeric_candidates:
   - postcode
 
 bucketing_rules:
-  agency: 20
-  landUse: 15
-  propertyType: 15
+  #agency: 20
+  #landUse: 15
+  #propertyType: 15
 
 required_columns:
   - salePrice
@@ -31,9 +31,14 @@ required_columns:
 
 category_mappings:
   propertyType:
-    House: [house, townhouse, dwelling]
-    Unit: [unit, villa, duplex]
-    Apartment: [flat, studio]
+    source: propertyType
+    default: Unknown
+    preserve_unmatched: false
+    mode: contains
+    rules:
+      House: [house, townhouse, dwelling]
+      Unit: [unit, villa, duplex]
+      Apartment: [flat, studio]
   agencyBrand:
     source: agency
     default: Other

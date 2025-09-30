@@ -60,99 +60,112 @@ def _norm_token(s: str) -> str:
 
 # --- Derivation Functions -------------------------------------------------
 
+class _CategoryMapping:
+    __slots__ = ("source", "output", "rules", "default", "mode", "preserve_unmatched")
+
+    def __init__(
+        self,
+        *,
+        source: str,
+        output: str,
+        rules: Dict[str, List[str]],
+        default: Optional[str],
+        mode: str,
+        preserve_unmatched: bool,
+    ) -> None:
+        self.source = source
+        self.output = output
+        self.rules = rules
+        self.default = default
+        self.mode = mode
+        self.preserve_unmatched = preserve_unmatched
+
+
+def _normalise_mapping_spec(column: str, spec: Any) -> Optional[_CategoryMapping]:
+    if not isinstance(spec, dict) or not spec:
+        warn("clean.category_map", reason="bad_spec", column=column)
+        return None
+
+    if "rules" in spec:
+        rules = spec.get("rules", {})
+        if not isinstance(rules, dict):
+            warn("clean.category_map", reason="bad_rules", column=column)
+            return None
+        return _CategoryMapping(
+            source=spec.get("source", column),
+            output=column,
+            rules={k: list(v or []) for k, v in rules.items()},
+            default=spec.get("default", "Other"),
+            mode=str(spec.get("mode", "contains")).lower(),
+            preserve_unmatched=bool(spec.get("preserve_unmatched", False)),
+        )
+
+    # Back-compat: dict of canonical -> keywords maps in-place on same column
+    return _CategoryMapping(
+        source=column,
+        output=column,
+        rules={k: list(v or []) for k, v in spec.items()},
+        default=None,
+        mode="contains",
+        preserve_unmatched=True,
+    )
+
+
+def _apply_mapping(df: pd.DataFrame, mapping: _CategoryMapping) -> pd.DataFrame:
+    if mapping.source not in df.columns:
+        warn(
+            "clean.category_map",
+            reason="missing_source",
+            source=mapping.source,
+            output=mapping.output,
+        )
+        return df
+
+    base = df[mapping.source].astype(str).map(_norm_token)
+
+    if mapping.preserve_unmatched and mapping.output == mapping.source:
+        out = df[mapping.source].astype(object).to_numpy(copy=True)
+    elif mapping.default is not None:
+        out = np.full(len(df), mapping.default, dtype=object)
+    else:
+        out = df[mapping.source].astype(object).to_numpy(copy=True)
+
+    for canonical, keywords in mapping.rules.items():
+        if not keywords:
+            continue
+        normalised_keywords = [_norm_token(k) for k in keywords if k]
+        if not normalised_keywords:
+            continue
+        if mapping.mode == "exact":
+            mask = base.isin(normalised_keywords)
+        else:
+            mask = False
+            for kw in normalised_keywords:
+                mask = mask | base.str.contains(re.escape(kw), regex=True, case=False)
+        out[mask] = canonical
+
+    df[mapping.output] = out
+    log(
+        "clean.category_map",
+        source=mapping.source,
+        output=mapping.output,
+        unique=int(pd.Series(out).nunique()),
+    )
+    return df
+
+
 def apply_category_mappings(
     df: pd.DataFrame,
     mappings: Dict[str, Any],
 ) -> pd.DataFrame:
-    """
-    Apply config-driven categorical consolidation.
-
-    Supports two forms per key under `category_mappings`:
-
-    A) Back-compat (your current style) — maps IN-PLACE:
-       category_mappings:
-         propertyType:
-           House: [house, townhouse, dwelling]
-           Unit:  [unit, villa, duplex]
-           Apartment: [flat, studio]
-
-    B) Extended (recommended for agency) — non-destructive:
-       category_mappings:
-         agencyBrand:
-           source: agency
-           default: Other
-           mode: contains           # or "exact"
-           rules:
-             Noel Jones:     [NOEL JONES]
-             Barry Plant:    [BARRY PLANT]
-             Jellis Craig:   [JELLIS CRAIG]
-             Ray White:      [RAY WHITE]
-             Harcourts:      [HARCOURTS]
-             Woodards:       [WOODARDS]
-             Biggin & Scott: [BIGGIN & SCOTT]
-             Fletchers:      [FLETCHERS]
-             Unknown:        [UNKNOWN]
-             Other:          [OTHER]
-    """
     if not isinstance(mappings, dict) or not mappings:
         return df
 
-    for out_or_col, spec in mappings.items():
-        # -------- Extended form (with rules/source) --------
-        if isinstance(spec, dict) and "rules" in spec:
-            source = spec.get("source", out_or_col)
-            default = spec.get("default", "Other")
-            mode = spec.get("mode", "contains").lower()
-            rules: Dict[str, List[str]] = spec["rules"]
-
-            if source not in df.columns:
-                warn("clean.category_map", reason="missing_source", source=source, output=out_or_col)
-                continue
-
-            base = df[source].astype(str).map(_norm_token)
-            out = np.full(len(df), default, dtype=object)
-
-            # Priority = order in YAML
-            for canonical, keywords in rules.items():
-                if not keywords:
-                    continue
-                kws = [ _norm_token(k) for k in keywords ]
-                if mode == "exact":
-                    mask = base.isin(kws)
-                else:
-                    # contains any keyword
-                    mask = False
-                    for kw in kws:
-                        if kw:
-                            mask = mask | base.str.contains(re.escape(kw), regex=True)
-                out[mask] = canonical
-
-            df[out_or_col] = out
-            log("clean.category_map", output=out_or_col, source=source, unique=int(pd.Series(out).nunique()))
+    for column, spec in mappings.items():
+        mapping = _normalise_mapping_spec(column, spec)
+        if mapping is None:
             continue
-
-        # -------- Back-compat (map in-place on same column) --------
-        if isinstance(spec, dict):
-            col = out_or_col
-            if col not in df.columns:
-                warn("clean.category_map", reason="missing_column", column=col)
-                continue
-            base = df[col].astype(str).map(_norm_token)
-            out = np.array(df[col].values, dtype=object)  # start with original values
-
-            for canonical, keywords in spec.items():
-                kws = [ _norm_token(k) for k in (keywords or []) ]
-                mask = False
-                for kw in kws:
-                    if kw:
-                        mask = mask | base.str.contains(re.escape(kw), regex=True)
-                out[mask] = canonical
-
-            df[col] = out
-            log("clean.category_map_inplace", column=col, unique=int(pd.Series(out).nunique()))
-            continue
-
-        warn("clean.category_map", reason="bad_spec", key=out_or_col)
+        df = _apply_mapping(df, mapping)
 
     return df
 
