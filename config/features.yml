@@ -4,11 +4,21 @@ exclude_columns:
   - observingYearMonth
   - street
   - __source_file
+  - price_future_6m
+  - price_future_12m
+  - price_future_6m_diff
+  - price_future_12m_diff
+  - price_future_6m_smooth
+  - price_future_6m_smooth_diff
+  - price_future_12m_delta
+  - price_future_12m_smooth
+  - price_future_12m_smooth_diff
 include_columns:
   - bed_bucket
   - bath_bucket
   - land_bucket
   - floor_bucket
+  - saleYearMonth
 mi_random_state: 7
 dataset_format: parquet
 id_like:
@@ -28,9 +38,9 @@ families: {}
 future_overrides: {}
 
 targets:
-  - name: price_future_6m
-    output_subdir: price_future_6m
+  - name: price_future_6m_delta
+    output_subdir: price_future_6m_delta
     correlation_threshold: 0.05
-  - name: price_future_12m
-    output_subdir: price_future_12m
+  - name: price_future_12m_smooth_delta
+    output_subdir: price_future_12m_smooth_delta
     correlation_threshold: 0.05

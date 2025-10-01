@@ -1,10 +1,9 @@
 {
-  "rows": 930,
+  "rows": 852,
   "columns": [
     "suburb",
     "propertyType",
     "bed_bucket",
-    "bath_bucket",
     "land_bucket",
     "floor_bucket",
     "saleYearMonth",
@@ -20,6 +19,16 @@
     "ratio_bed_bath",
     "price_per_sqm_land",
     "price_per_sqm_floor",
+    "asx200_close",
+    "asx200_yoy",
+    "cash_rate_avg",
+    "cash_rate_change_avg",
+    "cash_rate_change_eoy",
+    "cash_rate_eoy",
+    "cpi_index_avg",
+    "cpi_index_dec",
+    "cpi_yoy_avg",
+    "cpi_yoy_dec",
     "suburb_delta_12m",
     "suburb_delta_3m",
     "suburb_house_delta_12m",
@@ -62,6 +71,19 @@
     "suburb_volatility_6m",
     "price_future_6m",
     "price_future_12m",
+    "current_price_median_roll_mean_12m",
+    "current_price_median_roll_std_12m",
+    "current_price_median_z_12m",
+    "current_price_median_yoy",
+    "current_price_median_6m_change",
+    "current_price_median_rel_suburb",
+    "price_future_6m_delta",
+    "price_future_6m_diff",
+    "price_future_12m_delta",
+    "price_future_12m_diff",
+    "price_future_12m_smooth",
+    "price_future_12m_smooth_delta",
+    "price_future_12m_smooth_diff",
     "observingYearMonth"
   ],
   "numeric_columns": [
@@ -78,6 +100,16 @@
     "ratio_bed_bath",
     "price_per_sqm_land",
     "price_per_sqm_floor",
+    "asx200_close",
+    "asx200_yoy",
+    "cash_rate_avg",
+    "cash_rate_change_avg",
+    "cash_rate_change_eoy",
+    "cash_rate_eoy",
+    "cpi_index_avg",
+    "cpi_index_dec",
+    "cpi_yoy_avg",
+    "cpi_yoy_dec",
     "suburb_delta_12m",
     "suburb_delta_3m",
     "suburb_house_delta_12m",
@@ -120,13 +152,25 @@
     "suburb_volatility_6m",
     "price_future_6m",
     "price_future_12m",
+    "current_price_median_roll_mean_12m",
+    "current_price_median_roll_std_12m",
+    "current_price_median_z_12m",
+    "current_price_median_yoy",
+    "current_price_median_6m_change",
+    "current_price_median_rel_suburb",
+    "price_future_6m_delta",
+    "price_future_6m_diff",
+    "price_future_12m_delta",
+    "price_future_12m_diff",
+    "price_future_12m_smooth",
+    "price_future_12m_smooth_delta",
+    "price_future_12m_smooth_diff",
     "observingYearMonth"
   ],
   "categorical_columns": [
     "suburb",
     "propertyType",
     "bed_bucket",
-    "bath_bucket",
     "land_bucket",
     "floor_bucket"
   ],
@@ -134,21 +178,21 @@
   "config": {
     "preprocess": {
       "clean": {
-        "config_path": "/mnt/g/dev/property_analyst/config/pp_clean.yml",
-        "output_path": "/mnt/g/dev/property_analyst/data/preprocess/cleaned.parquet",
-        "dropped_rows_path": "/mnt/g/dev/property_analyst/data/preprocess/dropped_rows.parquet"
+        "config_path": "config/pp_clean.yml",
+        "output_path": "data/preprocess/cleaned.parquet",
+        "dropped_rows_path": "data/preprocess/dropped_rows.parquet"
       },
       "derivation": {
-        "config_path": "/mnt/g/dev/property_analyst/config/pp_derive.yml",
-        "output_path": "/mnt/g/dev/property_analyst/data/preprocess/derived.parquet",
-        "metadata_path": "/mnt/g/dev/property_analyst/data/preprocess/metadata.json",
-        "segment_output_path": "/mnt/g/dev/property_analyst/data/preprocess/segments.parquet",
-        "detailed_output_path": "/mnt/g/dev/property_analyst/data/preprocess/derived_detailed.parquet"
+        "config_path": "config/pp_derive.yml",
+        "output_path": "data/preprocess/derived.parquet",
+        "metadata_path": "data/preprocess/metadata.json",
+        "segment_output_path": "data/preprocess/segments.parquet",
+        "detailed_output_path": "data/preprocess/derived_detailed.parquet"
       },
       "options": {
         "verbose": true
       },
-      "source_path": "/mnt/g/dev/property_analyst/config/preprocessing.yml"
+      "source_path": "config/preprocessing.yml"
     },
     "cleaning": {
       "data_source": {
@@ -343,7 +387,7 @@
           ]
         }
       },
-      "dropped_rows_path": "/mnt/g/dev/property_analyst/data/preprocess/dropped_rows.parquet"
+      "dropped_rows_path": "data/preprocess/dropped_rows.parquet"
     },
     "derivation": {
       "street": {
@@ -442,6 +486,11 @@
         "clip_min": 0.0,
         "drop_na": true
       },
+      "macro_join": {
+        "enabled": true,
+        "path": "data/macro/macro_au_annual.csv",
+        "sale_year_col": "saleYear"
+      },
       "relative_pricing": {
         "enabled": true,
         "price_col": "salePrice",
@@ -474,14 +523,12 @@
           "enabled": true,
           "source": "bed",
           "bins": [
-            1,
             2,
             3,
             4
           ],
           "labels": [
-            "0-1",
-            "2",
+            "<=2",
             "3",
             "4",
             "5+"
@@ -508,19 +555,13 @@
           "enabled": true,
           "source": "landSizeM2",
           "bins": [
-            200,
             400,
-            600,
-            800,
-            1000
+            700
           ],
           "labels": [
-            "<=200",
-            "201-400",
-            "401-600",
-            "601-800",
-            "801-1000",
-            "1000+"
+            "<=400",
+            "401-700",
+            "700+"
           ],
           "fill_value": "Unknown"
         },
@@ -528,15 +569,13 @@
           "enabled": true,
           "source": "floorSizeM2",
           "bins": [
-            100,
             150,
-            200
+            220
           ],
           "labels": [
-            "<=100",
-            "101-150",
-            "151-200",
-            "200+"
+            "<=150",
+            "151-220",
+            "220+"
           ],
           "fill_value": "Unknown"
         }
@@ -548,7 +587,6 @@
           "suburb",
           "propertyType",
           "bed_bucket",
-          "bath_bucket",
           "land_bucket",
           "floor_bucket"
         ],
@@ -618,6 +656,18 @@
           "enabled": true,
           "prefixes": [
             "suburb_"
+          ],
+          "columns": [
+            "asx200_close",
+            "asx200_yoy",
+            "cpi_index_dec",
+            "cpi_yoy_dec",
+            "cpi_index_avg",
+            "cpi_yoy_avg",
+            "cash_rate_avg",
+            "cash_rate_eoy",
+            "cash_rate_change_avg",
+            "cash_rate_change_eoy"
           ]
         }
       },
@@ -638,18 +688,18 @@
           "horizon": 12,
           "window": 1,
           "min_periods": 12,
-          "drop_na": true
+          "drop_na": true,
+          "smooth": 12
         }
       ]
     }
   },
   "segments": {
-    "rows": 930,
+    "rows": 852,
     "columns": [
       "suburb",
       "propertyType",
       "bed_bucket",
-      "bath_bucket",
       "land_bucket",
       "floor_bucket",
       "saleYearMonth",
@@ -665,6 +715,16 @@
       "ratio_bed_bath",
       "price_per_sqm_land",
       "price_per_sqm_floor",
+      "asx200_close",
+      "asx200_yoy",
+      "cash_rate_avg",
+      "cash_rate_change_avg",
+      "cash_rate_change_eoy",
+      "cash_rate_eoy",
+      "cpi_index_avg",
+      "cpi_index_dec",
+      "cpi_yoy_avg",
+      "cpi_yoy_dec",
       "suburb_delta_12m",
       "suburb_delta_3m",
       "suburb_house_delta_12m",
@@ -707,21 +767,33 @@
       "suburb_volatility_6m",
       "price_future_6m",
       "price_future_12m",
+      "current_price_median_roll_mean_12m",
+      "current_price_median_roll_std_12m",
+      "current_price_median_z_12m",
+      "current_price_median_yoy",
+      "current_price_median_6m_change",
+      "current_price_median_rel_suburb",
+      "price_future_6m_delta",
+      "price_future_6m_diff",
+      "price_future_12m_delta",
+      "price_future_12m_diff",
+      "price_future_12m_smooth",
+      "price_future_12m_smooth_delta",
+      "price_future_12m_smooth_diff",
       "observingYearMonth"
     ],
     "grouping_keys": [
       "suburb",
       "propertyType",
       "bed_bucket",
-      "bath_bucket",
       "land_bucket",
       "floor_bucket"
     ],
     "month_column": "saleYearMonth",
-    "groups": 51,
+    "groups": 29,
     "future_targets": {
-      "price_future_6m": 930,
-      "price_future_12m": 930
+      "price_future_6m": 852,
+      "price_future_12m": 852
     }
   }
 }

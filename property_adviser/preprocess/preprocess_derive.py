@@ -5,6 +5,7 @@ import re
 
 from property_adviser.core.app_logging import log, warn
 from property_adviser.core.runner import run_step
+from property_adviser.macro.macro_data import add_macro_yearly
 
 
 # --- Reusable helpers -------------------------------------------------
@@ -113,6 +114,32 @@ def _apply_bucket_definitions(df: pd.DataFrame, buckets_cfg: Dict[str, Any]) -> 
         log("derive.bucket", bucket=bucket_name, output=output, unique=int(df[output].nunique()))
 
     return df
+
+
+def _join_macro_features(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
+    if not spec or not spec.get("enabled", True):
+        return df
+
+    path = spec.get("path") or spec.get("macro_path") or "data/macro/macro_au_annual.csv"
+    sale_year_col = spec.get("sale_year_col", "saleYear")
+
+    try:
+        joined = add_macro_yearly(df, macro_path=path, sale_year_col=sale_year_col)
+    except FileNotFoundError:
+        warn("derive.macro_join", reason="missing_file", path=path)
+        return df
+    except KeyError as exc:
+        warn("derive.macro_join", reason="missing_sale_year", error=str(exc))
+        return df
+
+    log(
+        "derive.macro_join",
+        path=path,
+        sale_year_col=sale_year_col,
+        rows=joined.shape[0],
+        cols_added=len(set(joined.columns) - set(df.columns)),
+    )
+    return joined
 
 
 def _compute_future_targets(
@@ -307,8 +334,81 @@ def build_segments(
 
     # Optional dropping of rows with missing future targets when drop_na flag set
     for spec in future_specs:
-        if spec.get("drop_na") and spec.get("name") in segment_df.columns:
-            segment_df = segment_df[segment_df[spec["name"]].notna()]
+        target_name = spec.get("name")
+        if spec.get("drop_na") and target_name in segment_df.columns:
+            segment_df = segment_df[segment_df[target_name].notna()]
+        smooth_flag = spec.get("smooth")
+        if smooth_flag:
+            smooth_col = f"{target_name}_smooth"
+            if smooth_col in segment_df.columns:
+                segment_df = segment_df[segment_df[smooth_col].notna()]
+
+
+    # ------------------------------------------------------------------
+    # Trend / relative features
+    # ------------------------------------------------------------------
+    if keys:
+        segment_df = segment_df.sort_values(keys + [month_col])
+        group = segment_df.groupby(keys, sort=False)
+
+        # Rolling statistics for current price median
+        current_col = "current_price_median"
+        if current_col in segment_df.columns:
+            rolling_mean_12 = group[current_col].transform(lambda s: s.rolling(window=12, min_periods=3).mean())
+            rolling_std_12 = group[current_col].transform(lambda s: s.rolling(window=12, min_periods=3).std())
+            lag_12 = group[current_col].shift(12)
+            lag_6 = group[current_col].shift(6)
+
+            segment_df["current_price_median_roll_mean_12m"] = rolling_mean_12
+            segment_df["current_price_median_roll_std_12m"] = rolling_std_12
+            segment_df["current_price_median_z_12m"] = (
+                (segment_df[current_col] - rolling_mean_12)
+                / rolling_std_12.replace({0.0: np.nan})
+            )
+            segment_df["current_price_median_yoy"] = (
+                segment_df[current_col] / lag_12.replace({0.0: np.nan})
+            ) - 1
+            segment_df["current_price_median_6m_change"] = (
+                segment_df[current_col] / lag_6.replace({0.0: np.nan})
+            ) - 1
+
+    if "current_price_median" in segment_df.columns and "suburb_price_median_current" in segment_df.columns:
+        segment_df["current_price_median_rel_suburb"] = (
+            segment_df["current_price_median"]
+            / segment_df["suburb_price_median_current"].replace({0.0: np.nan})
+        )
+
+    base_current = segment_df.get("current_price_median")
+    if base_current is not None:
+        safe_base = base_current.replace({0.0: np.nan})
+        grouped = segment_df.groupby(keys, sort=False) if keys else None
+        for spec in future_specs:
+            name = spec.get("name")
+            if not name or name not in segment_df.columns:
+                continue
+            future_vals = segment_df[name]
+            segment_df[f"{name}_delta"] = future_vals / safe_base - 1
+            segment_df[f"{name}_diff"] = future_vals - base_current
+
+            if grouped is not None and spec.get("smooth"):
+                window = int(spec.get("smooth", 12))
+                smooth_col = f"{name}_smooth"
+                smooth_vals = grouped[name].transform(
+                    lambda s: s.rolling(window=window, min_periods=max(3, window // 2)).mean()
+                )
+                segment_df[smooth_col] = smooth_vals
+                segment_df[f"{smooth_col}_delta"] = smooth_vals / safe_base - 1
+                segment_df[f"{smooth_col}_diff"] = smooth_vals - base_current
+
+    for spec in future_specs:
+        delta_col = f"{spec.get('name')}_delta"
+        if spec.get("drop_na") and delta_col in segment_df.columns:
+            segment_df = segment_df[segment_df[delta_col].notna()]
+
+        if spec.get("smooth"):
+            smooth_delta = f"{spec.get('name')}_smooth_delta"
+            if spec.get("drop_na") and smooth_delta in segment_df.columns:
+                segment_df = segment_df[segment_df[smooth_delta].notna()]
 
     segment_df = segment_df.reset_index(drop=True)
     segment_df["observingYearMonth"] = segment_df[month_col]
@@ -1123,8 +1223,12 @@ def derive_features(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
 
         warn("derive.step", name=name, reason="unknown_step")
 
+    macro_cfg = config.get("macro_join")
+    if macro_cfg:
+        df = run_step("derive.macro_join", _join_macro_features, df, spec=macro_cfg)
+
     if "buckets" in config:
         df = run_step("derive.buckets", _apply_bucket_definitions, df, buckets_cfg=config.get("buckets", {}))
 
-    
+
     return df

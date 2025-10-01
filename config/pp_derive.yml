@@ -90,6 +90,12 @@ price_per_area_floor:
   clip_min: 0.0
   drop_na: true
 
+# 3b) Macroeconomic enrichment
+macro_join:
+  enabled: true
+  path: data/macro/macro_au_annual.csv
+  sale_year_col: saleYear
+
 # 3) Relative Pricing
 relative_pricing:
   enabled: true
@@ -121,8 +127,8 @@ buckets:
   bed:
     enabled: true
     source: bed
-    bins: [1, 2, 3, 4]
-    labels: ["0-1", "2", "3", "4", "5+"]
+    bins: [2, 3, 4]
+    labels: ["<=2", "3", "4", "5+"]
     fill_value: "Unknown"
   bath:
     enabled: true
@@ -133,14 +139,14 @@ buckets:
   land:
     enabled: true
     source: landSizeM2
-    bins: [200, 400, 600, 800, 1000]
-    labels: ["<=200", "201-400", "401-600", "601-800", "801-1000", "1000+"]
+    bins: [400, 700]
+    labels: ["<=400", "401-700", "700+"]
     fill_value: "Unknown"
   floor:
     enabled: true
     source: floorSizeM2
-    bins: [100, 150, 200]
-    labels: ["<=100", "101-150", "151-200", "200+"]
+    bins: [150, 220]
+    labels: ["<=150", "151-220", "220+"]
     fill_value: "Unknown"
 
 # 6) Segment Grouping (used for future target generation / aggregation)
@@ -151,7 +157,6 @@ grouping:
     - suburb
     - propertyType
     - bed_bucket
-    - bath_bucket
     - land_bucket
     - floor_bucket
   min_rows: 12          # minimum records per group to retain
@@ -198,6 +203,17 @@ aggregations:
     enabled: true
     prefixes:
       - suburb_
+    columns:
+      - asx200_close
+      - asx200_yoy
+      - cpi_index_dec
+      - cpi_yoy_dec
+      - cpi_index_avg
+      - cpi_yoy_avg
+      - cash_rate_avg
+      - cash_rate_eoy
+      - cash_rate_change_avg
+      - cash_rate_change_eoy
 
 # 8) Future Targets (shifted horizons)
 future_targets:
@@ -215,3 +231,4 @@ future_targets:
     window: 1
     min_periods: 12
     drop_na: true
+    smooth: 12

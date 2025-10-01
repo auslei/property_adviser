@@ -37,9 +37,9 @@ models:
 
 targets:
   - name: price_future_6m
-    target: price_future_6m
+    target: price_future_6m_delta
     input:
-      path: data/training/price_future_6m
+      path: data/training/price_future_6m_delta
       X: X.parquet
       y: y.parquet
       feature_scores: feature_scores.parquet
@@ -48,9 +48,9 @@ targets:
       validation_month: 2023-03
     log_target: false
   - name: price_future_12m
-    target: price_future_12m
+    target: price_future_12m_smooth_delta
     input:
-      path: data/training/price_future_12m
+      path: data/training/price_future_12m_smooth_delta
       X: X.parquet
       y: y.parquet
       feature_scores: feature_scores.parquet
