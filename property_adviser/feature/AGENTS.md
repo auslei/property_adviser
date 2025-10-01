@@ -24,12 +24,14 @@ property_adviser/feature/
 - Derived dataset: typically `data/preprocess/derived.csv`.
 - Configuration: `config/features.yml`, supporting threshold and top-k modes, exclusion lists, guardrail settings, and optional RFECV elimination.
 - Manual overrides can be supplied via CLI flags, GUI orchestration, or programmatic calls to `run_feature_selection`.
+- Config-driven overrides: set `include_columns` / `manual_exclude` in `config/features.yml` to guarantee critical predictors (e.g., segment buckets) remain in the selected set while still computing their feature importance.
 
 ## Metrics & Selection
 - Metrics: `pearson_abs`, normalised `mutual_info`, and `eta` (computed via `compute_feature_scores`).
 - Best score = `max(pearson_abs, mutual_info, eta)` with `best_metric` storing the winner.
 - Guardrails: drop ID-like columns, enforce family rules, prune highly correlated pairs, and annotate reasons in the shared scores table.
 - Manual overrides (`include`, `exclude`, `use_top_k`, `top_k`) always take precedence.
+- Configured `include_columns` are prepended before manual CLI overrides so critical columns survive thresholding and redundancy pruning.
 - Optional RFECV elimination (configured via `elimination`): supports `max_features` (limit columns passed to RFE), `sample_rows` (row sampling for speed), and logs preprocessing + fit durations alongside summary scores.
 - Multi-target runs: define `targets` in `config/features.yml` to generate per-horizon outputs (each target writes to `base_output_dir/<target>/`).
 

@@ -57,6 +57,8 @@ class FeatureSelectionConfig:
     top_k: Optional[int]
     dataset_format: str
     exclude_columns: tuple[str, ...]
+    manual_include: tuple[str, ...]
+    manual_exclude: tuple[str, ...]
     mi_random_state: int
     id_like: IdLikeConfig
     redundancy: RedundancyConfig
@@ -112,6 +114,8 @@ class FeatureSelectionConfig:
             raise ValueError("dataset_format must be 'csv' or 'parquet'")
 
         exclude_columns = tuple(mapping.get("exclude_columns", []))
+        manual_include = tuple(mapping.get("include_columns", []))
+        manual_exclude = tuple(mapping.get("manual_exclude", []))
 
         id_like_cfg = mapping.get("id_like", {}) or {}
         id_like = IdLikeConfig(
@@ -167,6 +171,8 @@ class FeatureSelectionConfig:
             top_k=top_k,
             dataset_format=dataset_format,
             exclude_columns=exclude_columns,
+            manual_include=manual_include,
+            manual_exclude=manual_exclude,
             mi_random_state=mi_random_state,
             id_like=id_like,
             redundancy=redundancy,

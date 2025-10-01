@@ -39,40 +39,44 @@ suburb_time_aggregates:
 ratio_land_per_bed:
   enabled: true
   fn: ratio
-  numerator: landSize
-  denominator: bed_plus_one   # computed on the fly via expression not supported; set in clean step if needed
-  output: land_per_bed
+  numerator: landSizeM2
+  denominator: bed
+  denominator_offset: 1
+  output: ratio_land_per_bed
   drop_na: true
 
 ratio_floor_per_bed:
   enabled: true
   fn: ratio
-  numerator: propertySize
-  denominator: bed_plus_one
-  output: floor_per_bed
+  numerator: floorSizeM2
+  denominator: bed
+  denominator_offset: 1
+  output: ratio_floor_per_bed
   drop_na: true
 
 ratio_car_per_bed:
   enabled: true
   fn: ratio
   numerator: car
-  denominator: bed_plus_one
-  output: car_per_bed
+  denominator: bed
+  denominator_offset: 1
+  output: ratio_car_per_bed
   drop_na: true
 
 ratio_bed_bath:
   enabled: true
   fn: ratio
   numerator: bed
-  denominator: bath_plus_one
-  output: bed_bath_ratio
+  denominator: bath
+  denominator_offset: 1
+  output: ratio_bed_bath
   drop_na: true
 
 price_per_area_land:
   enabled: true
   fn: price_per_area
   price_col: salePrice
-  area_col: landSize
+  area_col: landSizeM2
   output: price_per_sqm_land
   clip_min: 0.0
   drop_na: true
@@ -81,7 +85,7 @@ price_per_area_floor:
   enabled: true
   fn: price_per_area
   price_col: salePrice
-  area_col: propertySize
+  area_col: floorSizeM2
   output: price_per_sqm_floor
   clip_min: 0.0
   drop_na: true
@@ -172,6 +176,28 @@ aggregations:
     - name: avg_floor_size
       source: floorSizeM2
       agg: mean
+    - name: ratio_land_per_bed
+      source: ratio_land_per_bed
+      agg: mean
+    - name: ratio_floor_per_bed
+      source: ratio_floor_per_bed
+      agg: mean
+    - name: ratio_car_per_bed
+      source: ratio_car_per_bed
+      agg: mean
+    - name: ratio_bed_bath
+      source: ratio_bed_bath
+      agg: mean
+    - name: price_per_sqm_land
+      source: price_per_sqm_land
+      agg: median
+    - name: price_per_sqm_floor
+      source: price_per_sqm_floor
+      agg: median
+  carry:
+    enabled: true
+    prefixes:
+      - suburb_
 
 # 8) Future Targets (shifted horizons)
 future_targets:

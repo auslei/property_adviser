@@ -14,6 +14,52 @@
     "transaction_count",
     "avg_land_size",
     "avg_floor_size",
+    "ratio_land_per_bed",
+    "ratio_floor_per_bed",
+    "ratio_car_per_bed",
+    "ratio_bed_bath",
+    "price_per_sqm_land",
+    "price_per_sqm_floor",
+    "suburb_delta_12m",
+    "suburb_delta_3m",
+    "suburb_house_delta_12m",
+    "suburb_house_delta_3m",
+    "suburb_house_price_median_12m",
+    "suburb_house_price_median_3m",
+    "suburb_house_price_median_6m",
+    "suburb_house_price_median_current",
+    "suburb_house_txn_count_12m",
+    "suburb_house_txn_count_3m",
+    "suburb_house_txn_count_6m",
+    "suburb_house_txn_count_current",
+    "suburb_house_volatility_12m",
+    "suburb_house_volatility_3m",
+    "suburb_house_volatility_6m",
+    "suburb_house_volatility_current",
+    "suburb_other_delta_12m",
+    "suburb_other_delta_3m",
+    "suburb_other_price_median_12m",
+    "suburb_other_price_median_3m",
+    "suburb_other_price_median_6m",
+    "suburb_other_price_median_current",
+    "suburb_other_txn_count_12m",
+    "suburb_other_txn_count_3m",
+    "suburb_other_txn_count_6m",
+    "suburb_other_txn_count_current",
+    "suburb_other_volatility_12m",
+    "suburb_other_volatility_3m",
+    "suburb_other_volatility_6m",
+    "suburb_other_volatility_current",
+    "suburb_price_median_12m",
+    "suburb_price_median_3m",
+    "suburb_price_median_6m",
+    "suburb_price_median_current",
+    "suburb_txn_count_12m",
+    "suburb_txn_count_3m",
+    "suburb_txn_count_6m",
+    "suburb_volatility_12m",
+    "suburb_volatility_3m",
+    "suburb_volatility_6m",
     "price_future_6m",
     "price_future_12m",
     "observingYearMonth"
@@ -26,6 +72,52 @@
     "transaction_count",
     "avg_land_size",
     "avg_floor_size",
+    "ratio_land_per_bed",
+    "ratio_floor_per_bed",
+    "ratio_car_per_bed",
+    "ratio_bed_bath",
+    "price_per_sqm_land",
+    "price_per_sqm_floor",
+    "suburb_delta_12m",
+    "suburb_delta_3m",
+    "suburb_house_delta_12m",
+    "suburb_house_delta_3m",
+    "suburb_house_price_median_12m",
+    "suburb_house_price_median_3m",
+    "suburb_house_price_median_6m",
+    "suburb_house_price_median_current",
+    "suburb_house_txn_count_12m",
+    "suburb_house_txn_count_3m",
+    "suburb_house_txn_count_6m",
+    "suburb_house_txn_count_current",
+    "suburb_house_volatility_12m",
+    "suburb_house_volatility_3m",
+    "suburb_house_volatility_6m",
+    "suburb_house_volatility_current",
+    "suburb_other_delta_12m",
+    "suburb_other_delta_3m",
+    "suburb_other_price_median_12m",
+    "suburb_other_price_median_3m",
+    "suburb_other_price_median_6m",
+    "suburb_other_price_median_current",
+    "suburb_other_txn_count_12m",
+    "suburb_other_txn_count_3m",
+    "suburb_other_txn_count_6m",
+    "suburb_other_txn_count_current",
+    "suburb_other_volatility_12m",
+    "suburb_other_volatility_3m",
+    "suburb_other_volatility_6m",
+    "suburb_other_volatility_current",
+    "suburb_price_median_12m",
+    "suburb_price_median_3m",
+    "suburb_price_median_6m",
+    "suburb_price_median_current",
+    "suburb_txn_count_12m",
+    "suburb_txn_count_3m",
+    "suburb_txn_count_6m",
+    "suburb_volatility_12m",
+    "suburb_volatility_3m",
+    "suburb_volatility_6m",
     "price_future_6m",
     "price_future_12m",
     "observingYearMonth"
@@ -42,21 +134,21 @@
   "config": {
     "preprocess": {
       "clean": {
-        "config_path": "config/pp_clean.yml",
-        "output_path": "data/preprocess/cleaned.parquet",
-        "dropped_rows_path": "data/preprocess/dropped_rows.parquet"
+        "config_path": "/mnt/g/dev/property_analyst/config/pp_clean.yml",
+        "output_path": "/mnt/g/dev/property_analyst/data/preprocess/cleaned.parquet",
+        "dropped_rows_path": "/mnt/g/dev/property_analyst/data/preprocess/dropped_rows.parquet"
       },
       "derivation": {
-        "config_path": "config/pp_derive.yml",
-        "output_path": "data/preprocess/derived.parquet",
-        "metadata_path": "data/preprocess/metadata.json",
-        "segment_output_path": "data/preprocess/segments.parquet",
-        "detailed_output_path": "data/preprocess/derived_detailed.parquet"
+        "config_path": "/mnt/g/dev/property_analyst/config/pp_derive.yml",
+        "output_path": "/mnt/g/dev/property_analyst/data/preprocess/derived.parquet",
+        "metadata_path": "/mnt/g/dev/property_analyst/data/preprocess/metadata.json",
+        "segment_output_path": "/mnt/g/dev/property_analyst/data/preprocess/segments.parquet",
+        "detailed_output_path": "/mnt/g/dev/property_analyst/data/preprocess/derived_detailed.parquet"
       },
       "options": {
         "verbose": true
       },
-      "source_path": "config/preprocessing.yml"
+      "source_path": "/mnt/g/dev/property_analyst/config/preprocessing.yml"
     },
     "cleaning": {
       "data_source": {
@@ -251,7 +343,7 @@
           ]
         }
       },
-      "dropped_rows_path": "data/preprocess/dropped_rows.parquet"
+      "dropped_rows_path": "/mnt/g/dev/property_analyst/data/preprocess/dropped_rows.parquet"
     },
     "derivation": {
       "street": {
@@ -299,40 +391,44 @@
       "ratio_land_per_bed": {
         "enabled": true,
         "fn": "ratio",
-        "numerator": "landSize",
-        "denominator": "bed_plus_one",
-        "output": "land_per_bed",
+        "numerator": "landSizeM2",
+        "denominator": "bed",
+        "denominator_offset": 1,
+        "output": "ratio_land_per_bed",
         "drop_na": true
       },
       "ratio_floor_per_bed": {
         "enabled": true,
         "fn": "ratio",
-        "numerator": "propertySize",
-        "denominator": "bed_plus_one",
-        "output": "floor_per_bed",
+        "numerator": "floorSizeM2",
+        "denominator": "bed",
+        "denominator_offset": 1,
+        "output": "ratio_floor_per_bed",
         "drop_na": true
       },
       "ratio_car_per_bed": {
         "enabled": true,
         "fn": "ratio",
         "numerator": "car",
-        "denominator": "bed_plus_one",
-        "output": "car_per_bed",
+        "denominator": "bed",
+        "denominator_offset": 1,
+        "output": "ratio_car_per_bed",
         "drop_na": true
       },
       "ratio_bed_bath": {
         "enabled": true,
         "fn": "ratio",
         "numerator": "bed",
-        "denominator": "bath_plus_one",
-        "output": "bed_bath_ratio",
+        "denominator": "bath",
+        "denominator_offset": 1,
+        "output": "ratio_bed_bath",
         "drop_na": true
       },
       "price_per_area_land": {
         "enabled": true,
         "fn": "price_per_area",
         "price_col": "salePrice",
-        "area_col": "landSize",
+        "area_col": "landSizeM2",
         "output": "price_per_sqm_land",
         "clip_min": 0.0,
         "drop_na": true
@@ -341,7 +437,7 @@
         "enabled": true,
         "fn": "price_per_area",
         "price_col": "salePrice",
-        "area_col": "propertySize",
+        "area_col": "floorSizeM2",
         "output": "price_per_sqm_floor",
         "clip_min": 0.0,
         "drop_na": true
@@ -486,8 +582,44 @@
             "name": "avg_floor_size",
             "source": "floorSizeM2",
             "agg": "mean"
+          },
+          {
+            "name": "ratio_land_per_bed",
+            "source": "ratio_land_per_bed",
+            "agg": "mean"
+          },
+          {
+            "name": "ratio_floor_per_bed",
+            "source": "ratio_floor_per_bed",
+            "agg": "mean"
+          },
+          {
+            "name": "ratio_car_per_bed",
+            "source": "ratio_car_per_bed",
+            "agg": "mean"
+          },
+          {
+            "name": "ratio_bed_bath",
+            "source": "ratio_bed_bath",
+            "agg": "mean"
+          },
+          {
+            "name": "price_per_sqm_land",
+            "source": "price_per_sqm_land",
+            "agg": "median"
+          },
+          {
+            "name": "price_per_sqm_floor",
+            "source": "price_per_sqm_floor",
+            "agg": "median"
           }
-        ]
+        ],
+        "carry": {
+          "enabled": true,
+          "prefixes": [
+            "suburb_"
+          ]
+        }
       },
       "future_targets": [
         {
@@ -527,6 +659,52 @@
       "transaction_count",
       "avg_land_size",
       "avg_floor_size",
+      "ratio_land_per_bed",
+      "ratio_floor_per_bed",
+      "ratio_car_per_bed",
+      "ratio_bed_bath",
+      "price_per_sqm_land",
+      "price_per_sqm_floor",
+      "suburb_delta_12m",
+      "suburb_delta_3m",
+      "suburb_house_delta_12m",
+      "suburb_house_delta_3m",
+      "suburb_house_price_median_12m",
+      "suburb_house_price_median_3m",
+      "suburb_house_price_median_6m",
+      "suburb_house_price_median_current",
+      "suburb_house_txn_count_12m",
+      "suburb_house_txn_count_3m",
+      "suburb_house_txn_count_6m",
+      "suburb_house_txn_count_current",
+      "suburb_house_volatility_12m",
+      "suburb_house_volatility_3m",
+      "suburb_house_volatility_6m",
+      "suburb_house_volatility_current",
+      "suburb_other_delta_12m",
+      "suburb_other_delta_3m",
+      "suburb_other_price_median_12m",
+      "suburb_other_price_median_3m",
+      "suburb_other_price_median_6m",
+      "suburb_other_price_median_current",
+      "suburb_other_txn_count_12m",
+      "suburb_other_txn_count_3m",
+      "suburb_other_txn_count_6m",
+      "suburb_other_txn_count_current",
+      "suburb_other_volatility_12m",
+      "suburb_other_volatility_3m",
+      "suburb_other_volatility_6m",
+      "suburb_other_volatility_current",
+      "suburb_price_median_12m",
+      "suburb_price_median_3m",
+      "suburb_price_median_6m",
+      "suburb_price_median_current",
+      "suburb_txn_count_12m",
+      "suburb_txn_count_3m",
+      "suburb_txn_count_6m",
+      "suburb_volatility_12m",
+      "suburb_volatility_3m",
+      "suburb_volatility_6m",
       "price_future_6m",
       "price_future_12m",
       "observingYearMonth"

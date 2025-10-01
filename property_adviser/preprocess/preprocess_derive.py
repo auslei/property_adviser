@@ -214,6 +214,80 @@ def build_segments(
         )
         segment_df = segment_df.merge(agg_series, on=group_cols, how="left")
 
+    carry_cfg = agg_cfg.get("carry") or {}
+    carry_enabled = carry_cfg.get("enabled")
+    if carry_enabled is None:
+        carry_enabled = bool(metrics)
+
+    if carry_enabled:
+        explicit_cols = [col for col in carry_cfg.get("columns", []) if isinstance(col, str)]
+        prefix_list = [pref for pref in carry_cfg.get("prefixes", []) if isinstance(pref, str)]
+        auto_detect = bool(carry_cfg.get("auto_detect", False))
+        max_unique = int(carry_cfg.get("max_unique", 1))
+        allow_mixed = bool(carry_cfg.get("allow_mixed", False))
+
+        candidate_cols = set(explicit_cols)
+        if prefix_list:
+            for col in working.columns:
+                if any(col.startswith(pref) for pref in prefix_list):
+                    candidate_cols.add(col)
+
+        if auto_detect:
+            excluded = set(group_cols) | set(segment_df.columns)
+            for col in working.columns:
+                if col in excluded or col in candidate_cols:
+                    continue
+                candidate_cols.add(col)
+
+        grouped = working.groupby(group_cols, dropna=False)
+        safe_columns: list[str] = []
+        rejected_columns: list[str] = []
+
+        for col in sorted(candidate_cols):
+            if col in group_cols or col in segment_df.columns:
+                continue
+            if col not in working.columns:
+                warn(
+                    "derive.segment",
+                    reason="carry_missing_column",
+                    column=col,
+                )
+                continue
+
+            unique_counts = grouped[col].nunique(dropna=False)
+            max_count = unique_counts.max()
+            if pd.isna(max_count):
+                # Column was entirely NA; include to mirror original behaviour
+                safe_columns.append(col)
+                continue
+
+            if max_count <= max_unique:
+                safe_columns.append(col)
+            else:
+                rejected_columns.append(col)
+                if allow_mixed:
+                    safe_columns.append(col)
+
+        if rejected_columns:
+            warn(
+                "derive.segment",
+                reason="carry_conflict",
+                columns=rejected_columns,
+                max_unique=max_unique,
+                allow_mixed=allow_mixed,
+            )
+
+        if safe_columns:
+            carry_frame = grouped[safe_columns].first().reset_index()
+            segment_df = segment_df.merge(carry_frame, on=group_cols, how="left")
+            log(
+                "derive.segment_carry",
+                columns=len(safe_columns),
+                explicit=len(explicit_cols),
+                prefixes=len(prefix_list),
+                auto_detect=auto_detect,
+            )
+
     # Filter groups by overall activity (rows/months)
     if min_rows or min_months:
         group_totals = working.groupby(keys, dropna=False).size()
@@ -527,14 +601,26 @@ def derive_ratio(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
     clip_min = spec.get("clip_min")
     clip_max = spec.get("clip_max")
     drop_na = bool(spec.get("drop_na", False))
+    num_offset = float(spec.get("numerator_offset", 0.0) or 0.0)
+    den_offset = float(spec.get("denominator_offset", 0.0) or 0.0)
+    den_min = spec.get("denominator_min")
 
     ok, missing = _has_cols(df, [num, den])
     if not ok:
         warn("derive.ratio", reason="missing_columns", missing=missing)
         return df
 
-    result = _safe_ratio(pd.to_numeric(df[num], errors="coerce"),
-                         pd.to_numeric(df[den], errors="coerce"))
+    num_series = pd.to_numeric(df[num], errors="coerce")
+    den_series = pd.to_numeric(df[den], errors="coerce")
+
+    if num_offset:
+        num_series = num_series + num_offset
+    if den_offset:
+        den_series = den_series + den_offset
+    if den_min is not None:
+        den_series = den_series.where(den_series.abs() >= float(den_min))
+
+    result = _safe_ratio(num_series, den_series)
     if clip_min is not None:
         result = result.where(result >= float(clip_min))
     if clip_max is not None:
@@ -570,6 +656,12 @@ def derive_price_per_area(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFram
 
 
 # --- New: Temporal / Market Trend helpers -----------------------------
+DERIVE_FN_DISPATCH: Dict[str, Any] = {
+    "ratio": derive_ratio,
+    "price_per_area": derive_price_per_area,
+}
+
+
 def derive_month_index(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame:
     """
     Create a monotonic month index from saleYearMonth:
@@ -1018,6 +1110,15 @@ def derive_features(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
 
         if name == "age_bands":
             df = run_step("derive.age_bands", derive_age_bands, df, spec=spec)
+            continue
+
+        fn_name = str(spec.get("fn") or "").strip()
+        if fn_name:
+            fn_impl = DERIVE_FN_DISPATCH.get(fn_name)
+            if fn_impl:
+                df = run_step(f"derive.{fn_name}", fn_impl, df, spec=spec)
+            else:
+                warn("derive.step", name=name, reason="unknown_fn", fn=fn_name)
             continue
 
         warn("derive.step", name=name, reason="unknown_step")

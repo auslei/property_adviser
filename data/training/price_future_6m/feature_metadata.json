@@ -11,36 +11,90 @@
   ],
   "selected_model": "RandomForestRegressor",
   "feature_metadata": {
-    "timestamp": "20250930_213346",
+    "timestamp": "20251001_190747",
     "month_column": "saleYearMonth",
     "raw_feature_columns": [
       "avg_floor_size",
       "avg_land_size",
+      "bath_bucket",
+      "bed_bucket",
       "current_price_median",
+      "floor_bucket",
+      "land_bucket",
       "price_future_12m",
-      "saleYearMonth"
+      "price_per_sqm_floor",
+      "price_per_sqm_land",
+      "ratio_bed_bath",
+      "ratio_car_per_bed",
+      "ratio_land_per_bed",
+      "saleYearMonth",
+      "suburb_house_volatility_current",
+      "suburb_volatility_12m",
+      "suburb_volatility_3m",
+      "suburb_volatility_6m"
     ],
     "model_input_columns": [
       "current_price_median",
       "avg_land_size",
       "avg_floor_size",
-      "price_future_12m"
+      "ratio_land_per_bed",
+      "ratio_car_per_bed",
+      "ratio_bed_bath",
+      "price_per_sqm_land",
+      "price_per_sqm_floor",
+      "suburb_house_volatility_current",
+      "suburb_volatility_12m",
+      "suburb_volatility_3m",
+      "suburb_volatility_6m",
+      "price_future_12m",
+      "bed_bucket",
+      "bath_bucket",
+      "land_bucket",
+      "floor_bucket"
     ],
     "numeric_features": [
       "current_price_median",
       "avg_land_size",
       "avg_floor_size",
+      "ratio_land_per_bed",
+      "ratio_car_per_bed",
+      "ratio_bed_bath",
+      "price_per_sqm_land",
+      "price_per_sqm_floor",
+      "suburb_house_volatility_current",
+      "suburb_volatility_12m",
+      "suburb_volatility_3m",
+      "suburb_volatility_6m",
       "price_future_12m"
     ],
-    "categorical_features": [],
+    "categorical_features": [
+      "bed_bucket",
+      "bath_bucket",
+      "land_bucket",
+      "floor_bucket"
+    ],
     "impute": {
       "numeric": {
         "current_price_median": 840425.0,
         "avg_land_size": 497.5,
         "avg_floor_size": 128.0,
+        "ratio_land_per_bed": 118.5,
+        "ratio_car_per_bed": 0.5,
+        "ratio_bed_bath": 1.0,
+        "price_per_sqm_land": 1993.6502857142857,
+        "price_per_sqm_floor": 6756.310096153846,
+        "suburb_house_volatility_current": 428088.1737178968,
+        "suburb_volatility_12m": 629344.659323771,
+        "suburb_volatility_3m": 551143.5114515818,
+        "suburb_volatility_6m": 627692.7664665622,
         "price_future_12m": 886000.0
       },
-      "categorical": {}
+      "categorical": {
+        "bed_bucket": "3",
+        "bath_bucket": "2",
+        "land_bucket": "201-400",
+        "floor_bucket": "101-150"
+      }
     },
     "property_age": {
       "bands": [

@@ -35,11 +35,11 @@ Engineer leak-safe features using deterministic inputs:
 - Seasonality encodings (`saleMonth_sin`, `saleMonth_cos`, `month_id`).
 - Suburb rolling aggregates for price, volume, and volatility across 3/6/12 windows.
 - Property-type scoped metrics (e.g., `suburb_house_price_median_current`).
-- Ratio features (`land_per_bed`, `price_per_sqm_land`, etc.) built via `_safe_ratio`.
+- Ratio features (`ratio_land_per_bed`, `price_per_sqm_land`, etc.) built via `_safe_ratio`; declare them with `fn: ratio` / `fn: price_per_area` in `pp_derive.yml` and optional `denominator_offset` values to emulate the legacy “plus one” patterns safely.
 - Age features (`propertyAge`, `propertyAgeBand`) with configurable buckets.
 - Optional macro joins via `property_adviser.macro.add_macro_yearly`.
 - Configurable bucketing turns raw attributes into segment features (`bed_bucket`, `bath_bucket`, `land_bucket`, `floor_bucket`) using YAML-defined bins or mappings.
-- Segment aggregation builds one row per observation month using the configured grouping keys (default: suburb + property type + buckets). Aggregated metrics (`current_price_median`, `transaction_count`, etc.) and lead targets (e.g., `price_future_6m`, `price_future_12m`) are computed from the raw data with look-ahead horizons.
+- Segment aggregation builds one row per observation month using the configured grouping keys (default: suburb + property type + buckets). Aggregated metrics (`current_price_median`, `transaction_count`, etc.) and lead targets (e.g., `price_future_6m`, `price_future_12m`) are computed from the raw data with look-ahead horizons. Use `aggregations.carry` to keep deterministic historical roll-ups (e.g., `suburb_price_median_6m`) without hand-writing duplicate metric entries.
 
 ## Outputs
 All files are written using `property_adviser.core.io.save_parquet_or_csv`:

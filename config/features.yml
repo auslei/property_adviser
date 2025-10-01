@@ -4,6 +4,11 @@ exclude_columns:
   - observingYearMonth
   - street
   - __source_file
+include_columns:
+  - bed_bucket
+  - bath_bucket
+  - land_bucket
+  - floor_bucket
 mi_random_state: 7
 dataset_format: parquet
 id_like:

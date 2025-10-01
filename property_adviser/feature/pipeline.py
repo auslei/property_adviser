@@ -456,8 +456,19 @@ def run_feature_selection(
 ) -> FeatureSelectionResult:
     overall_start = perf_counter()
 
+    include_from_config = list(config.manual_include)
+    exclude_from_config = list(config.manual_exclude)
+
     include = list(include or [])
     exclude = list(exclude or [])
+
+    for col in include_from_config:
+        if col not in include:
+            include.insert(0, col)
+
+    for col in exclude_from_config:
+        if col not in exclude:
+            exclude.append(col)
 
     df = load_parquet_or_csv(config.input_file)
     if config.target not in df.columns:
@@ -556,6 +567,11 @@ def run_feature_selection(
     )
 
     selected_cols = [c for c in selected_cols if c in df.columns and c != config.target]
+
+    if config.manual_include:
+        forced = [c for c in config.manual_include if c in df.columns and c != config.target]
+        selected_cols = forced + [c for c in selected_cols if c not in forced]
+
     scores_df["selected"] = scores_df["feature"].isin(set(selected_cols))
 
     X = df[selected_cols]
