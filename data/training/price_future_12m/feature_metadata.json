@@ -1,6 +1,6 @@
 {
   "target": "price_future_12m",
-  "validation_month": "2024-03",
+  "validation_month": "2023-03",
   "models_considered": [
     "LinearRegression",
     "Ridge",
@@ -9,9 +9,9 @@
     "RandomForestRegressor",
     "GradientBoostingRegressor"
   ],
-  "selected_model": "RandomForestRegressor",
+  "selected_model": "Lasso",
   "feature_metadata": {
-    "timestamp": "20251001_190829",
+    "timestamp": "20251001_194326",
     "month_column": "saleYearMonth",
     "raw_feature_columns": [
       "avg_floor_size",

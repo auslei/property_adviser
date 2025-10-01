@@ -30,9 +30,9 @@ Keep configuration declarative; extend or override behaviour via YAML rather tha
 ## Workflow Summary
 1. Load one or more `TrainingConfig` instances via `load_training_config`; each represents a distinct target/horizon.
 2. Read X/y (and optional feature scores) via `core.io.load_parquet_or_csv`, applying manual selections before modelling.
-3. Choose the validation month (requested or latest) and perform a month-based split, dropping the month column from model inputs.
+3. Choose the validation month (requested or latest), sort chronologically, and perform a month-based split, dropping the month column from model inputs.
 4. Build a single preprocessing pipeline (numeric: median + scaler, categorical: mode + one-hot) reused across every estimator.
-5. For each enabled model, run `GridSearchCV` (default R² scoring, 3-fold) inside a timed block; validation metrics and CV scores are logged per candidate and per target.
+5. For each enabled model, run `GridSearchCV` with a `TimeSeriesSplit` (default up to 5 folds based on sample count, R² scoring) inside a timed block; validation metrics and CV scores are logged per candidate and per target.
 6. Persist the winning model bundle, score summaries, and feature metadata (including imputation defaults) with timestamped filenames under the target’s artefact directory.
 7. Emit `train.complete` with total runtime, best model, and validation month; return a `TrainingResult` dataclass. `train_timeseries_model` aggregates these results and emits a holistic JSON report.
 

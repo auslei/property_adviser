@@ -15,7 +15,7 @@ from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, Ridge
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import TransformedTargetRegressor
@@ -243,10 +243,14 @@ def _split_by_month(
     months = _normalise_month(X[month_column])
     mask_train = months < validation_month
     mask_val = months == validation_month
-    X_tr = X.loc[mask_train].drop(columns=[month_column], errors="ignore").copy()
-    X_va = X.loc[mask_val].drop(columns=[month_column], errors="ignore").copy()
-    y_tr = y.loc[mask_train].copy()
-    y_va = y.loc[mask_val].copy()
+
+    train_idx = months[mask_train].sort_values().index
+    val_idx = months[mask_val].sort_values().index
+
+    X_tr = X.loc[train_idx].drop(columns=[month_column], errors="ignore").copy()
+    X_va = X.loc[val_idx].drop(columns=[month_column], errors="ignore").copy()
+    y_tr = y.loc[train_idx].copy()
+    y_va = y.loc[val_idx].copy()
     if X_tr.empty or X_va.empty:
         raise ValueError(
             f"Received an empty split (train={X_tr.shape}, val={X_va.shape}). Check month distribution."
@@ -326,6 +330,17 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         config_name=config.name,
     )
 
+    n_splits = min(5, max(2, len(X_tr) // 120)) if len(X_tr) > 10 else 2
+    cv_strategy = TimeSeriesSplit(n_splits=n_splits)
+    log(
+        "train.cv_setup",
+        strategy="TimeSeriesSplit",
+        n_splits=n_splits,
+        train_rows=len(X_tr),
+        target=config.target,
+        config_name=config.name,
+    )
+
     preprocessor, numeric_features, categorical_features = _build_preprocessor(X_tr)
     log(
         "train.preprocessor",
@@ -387,7 +402,7 @@ def run_training(config: TrainingConfig) -> TrainingResult:
                 estimator=trained_estimator,
                 param_grid=param_grid,
                 scoring="r2",
-                cv=3,
+                cv=cv_strategy,
                 n_jobs=-1,
                 refit=True,
                 verbose=0,
