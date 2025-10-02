@@ -23,6 +23,7 @@ from sklearn.compose import TransformedTargetRegressor
 from property_adviser.core.app_logging import log, time_block
 from property_adviser.core.io import ensure_dir, load_parquet_or_csv, save_parquet_or_csv, write_list
 from property_adviser.train.config import TrainingConfig
+from property_adviser.train.arima_regressor import AutoARIMARegressor
 
 MODEL_FACTORY = {
     "LinearRegression": LinearRegression,
@@ -31,6 +32,7 @@ MODEL_FACTORY = {
     "ElasticNet": ElasticNet,
     "RandomForestRegressor": RandomForestRegressor,
     "GradientBoostingRegressor": GradientBoostingRegressor,
+    "AutoARIMA": AutoARIMARegressor,
 }
 
 

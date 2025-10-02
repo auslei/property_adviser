@@ -16,7 +16,8 @@ dependencies = [
   "pyarrow",
   "matplotlib",
   "seaborn",
-  "scipy"
+  "scipy",
+  "pmdarima"
 ]
 
 [tool.setuptools.packages.find]

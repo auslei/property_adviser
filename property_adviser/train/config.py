@@ -113,6 +113,7 @@ def _build_training_config(
             "ElasticNet",
             "RandomForestRegressor",
             "GradientBoostingRegressor",
+            "AutoARIMA",
         )
     }
     models: Dict[str, ModelConfig] = {}
