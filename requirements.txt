@@ -6,4 +6,4 @@ pyyaml
 matplotlib
 seaborn
 scipy
-pmdarima
+statsmodels

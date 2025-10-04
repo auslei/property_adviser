@@ -11,6 +11,7 @@ from property_adviser.core.io import read_json
 from property_adviser.core.paths import MODELS_DIR, TRAINING_DIR
 
 _DEFAULT_MODEL_CANDIDATES: tuple[Path, ...] = (
+    MODELS_DIR / "model_final" / "best_model.joblib",
     MODELS_DIR / "best_model.joblib",
     MODELS_DIR / "best_model.pkl",
 )
@@ -74,7 +75,11 @@ def load_model_artifacts(
     resolved_metadata_path = metadata_path or (TRAINING_DIR / "feature_metadata.json")
     metadata = load_feature_metadata(resolved_metadata_path)
 
-    resolved_summary_path = summary_path or (MODELS_DIR / "best_model.json")
+    resolved_summary_path = summary_path or (MODELS_DIR / "model_final" / "best_model.json")
+    if resolved_summary_path and not resolved_summary_path.exists():
+        fallback_summary = MODELS_DIR / "best_model.json"
+        if fallback_summary.exists():
+            resolved_summary_path = fallback_summary
     summary = {}
     if resolved_summary_path.exists():
         raw_summary = read_json(resolved_summary_path)

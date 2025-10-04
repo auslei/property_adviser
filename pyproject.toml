@@ -17,7 +17,7 @@ dependencies = [
   "matplotlib",
   "seaborn",
   "scipy",
-  "pmdarima"
+  "statsmodels"
 ]
 
 [tool.setuptools.packages.find]
@@ -54,3 +54,4 @@ pa-feature-selection = "property_adviser.feature.cli:main"
 pa-train = "property_adviser.train.cli:main"
 pa-macro = "property_adviser.macro.cli:main"
 pa-pipeline = "property_adviser.cli:main"
+pa-promote = "property_adviser.train.promotion_cli:main"

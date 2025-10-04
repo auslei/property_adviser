@@ -43,6 +43,23 @@ def main():
     if outcome.get("report_path"):
         print(f"Report: {outcome['report_path']}")
 
+    best = outcome.get("best_overall")
+    if best:
+        val_r2 = best.get("val_r2")
+        val_rmse = best.get("val_rmse")
+        val_mae = best.get("val_mae")
+        metrics = [
+            f"val_r2={val_r2:.3f}" if isinstance(val_r2, (int, float)) else None,
+            f"val_rmse={val_rmse:.3f}" if isinstance(val_rmse, (int, float)) else None,
+            f"val_mae={val_mae:.3f}" if isinstance(val_mae, (int, float)) else None,
+        ]
+        metrics_str = "  ".join(filter(None, metrics))
+        print(
+            f"Best Overall → {best['target_name']} ({best['target']})  "
+            f"{best['model']}  {metrics_str}  "
+            f"Bundle: {best['canonical_model_path']}"
+        )
+
 
 if __name__ == "__main__":
     main()

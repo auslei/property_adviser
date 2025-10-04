@@ -18,12 +18,15 @@ property_adviser/train/
   pipeline.py   # run_training orchestration + persistence
   cli.py        # CLI entry point (pa-train)
   model_training.py  # Compatibility wrapper around the pipeline
-  arima_regressor.py # AutoARIMA adapter exposed through MODEL_FACTORY
+  sarimax_regressor.py # SARIMAX adapter exposed through MODEL_FACTORY
+  promotion.py   # Promote trained bundles into deployment directories
+  promotion_cli.py # CLI wrapper (pa-promote)
 ```
 
 ## Configuration (`config/model.yml`)
 - Declare shared defaults once (`models`, `model_path.base`, `task`, `log_target` etc.).
 - List training targets under `targets`, each with its own `name`, `target` column, `input` paths, optional `split` overrides, and per-target model tweaks.
+- Provide `forecast_window` (e.g. `12m`) when multiple targets cover the same horizon; the loader infers it from target names when omitted.
 - Artefacts are written to `<model_path.base>/<target>/` unless overridden.
 
 Keep configuration declarative; extend or override behaviour via YAML rather than code edits.
@@ -33,9 +36,10 @@ Keep configuration declarative; extend or override behaviour via YAML rather tha
 2. Read X/y (and optional feature scores) via `core.io.load_parquet_or_csv`, applying manual selections before modelling.
 3. Choose the validation month (requested or latest), sort chronologically, and perform a month-based split, dropping the month column from model inputs.
 4. Build a single preprocessing pipeline (numeric: median + scaler, categorical: mode + one-hot) reused across every estimator.
-5. For each enabled model (Linear/Elastic families, tree ensembles, AutoARIMA, etc.), run `GridSearchCV` with a `TimeSeriesSplit` (default up to 5 folds based on sample count, R² scoring) inside a timed block; validation metrics and CV scores are logged per candidate and per target.
+5. For each enabled model (Linear/Elastic families, tree ensembles, SARIMAX, etc.), run `GridSearchCV` with a `TimeSeriesSplit` (default up to 5 folds based on sample count, R² scoring) inside a timed block; validation metrics and CV scores are logged per candidate and per target.
 6. Persist the winning model bundle, score summaries, and feature metadata (including imputation defaults) with timestamped filenames under the target’s artefact directory.
-7. Emit `train.complete` with total runtime, best model, and validation month; return a `TrainingResult` dataclass. `train_timeseries_model` aggregates these results and emits a holistic JSON report.
+7. Promote deployment candidates via `promotion.py`/`pa-promote`, copying the active bundle into `models/model_final/` and refreshing `data/training/feature_metadata.json`.
+8. Emit `train.complete` with total runtime, best model, and validation month; return a `TrainingResult` dataclass. `train_timeseries_model` aggregates these results and emits a holistic JSON report.
 
 ## Outputs
 - `models/<target>/best_model_<estimator>_<timestamp>.joblib`
@@ -49,8 +53,10 @@ All writes use `core.io.ensure_dir` + `joblib.dump`/`json.dump` wrappers for con
 ## CLI Usage
 ```bash
 uv run pa-train --config config/model.yml --verbose
+uv run pa-promote --all-targets --copy-scores
 ```
 - Optional overrides (`--model`, `--log-target`, etc.) should map directly to config keys.
+- `pa-promote` groups candidates by `forecast_window` by default; pass `--no-best-per-window` to keep every selected target even if horizons overlap.
 
 ## Programmatic Usage
 ```python
@@ -69,7 +75,7 @@ for cfg in configs:
 
 ## Maintenance Checklist
 1. Keep preprocessing logic centralised; if additional transformers benefit multiple models, extract them into helpers.
-2. Extend estimator support by updating `MODEL_FACTORY` (e.g., AutoARIMA adapter) and documenting new configuration flags.
+2. Extend estimator support by updating `MODEL_FACTORY` (e.g., SARIMAX adapter) and documenting new configuration flags.
 3. Backward compatibility matters: when changing artefact names or metadata schemas, update dependent modules and docs.
 
 ## Best-Model Selection Workflow

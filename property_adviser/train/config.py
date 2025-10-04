@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
+import re
+
 from property_adviser.config import PROJECT_ROOT
 from property_adviser.core.config import load_config
 
@@ -40,6 +42,7 @@ class TrainingConfig:
     split: SplitConfig
     artifacts_dir: Path
     models: Dict[str, ModelConfig]
+    forecast_window: Optional[str]
 
 
 def _merge_dicts(base: Dict[str, Any], overrides: Mapping[str, Any]) -> Dict[str, Any]:
@@ -50,6 +53,17 @@ def _merge_dicts(base: Dict[str, Any], overrides: Mapping[str, Any]) -> Dict[str
         else:
             merged[key] = value
     return merged
+
+
+def _infer_forecast_window(name: str, target: str) -> Optional[str]:
+    pattern = re.compile(r"(\d+)\s*(?:months?|m)(?![A-Za-z0-9])", re.IGNORECASE)
+    for value in (name, target):
+        if not value:
+            continue
+        match = pattern.search(value)
+        if match:
+            return f"{match.group(1)}m"
+    return None
 
 
 def _resolve_path(value: str, *, project_root: Path, config_dir: Path) -> Path:
@@ -104,6 +118,13 @@ def _build_training_config(
         month_column=split_cfg.get("month_column", "saleYearMonth"),
     )
 
+    forecast_window = raw.get("forecast_window")
+    if isinstance(forecast_window, (int, float)):
+        forecast_window = f"{int(forecast_window)}m"
+    if forecast_window is None:
+        inferred = _infer_forecast_window(str(raw.get("name") or name), str(raw.get("target") or name))
+        forecast_window = inferred
+
     models_cfg = raw.get("models") or {
         model_name: {"enabled": True, "grid": {}}
         for model_name in (
@@ -113,7 +134,7 @@ def _build_training_config(
             "ElasticNet",
             "RandomForestRegressor",
             "GradientBoostingRegressor",
-            "AutoARIMA",
+            "SARIMAX",
         )
     }
     models: Dict[str, ModelConfig] = {}
@@ -137,6 +158,7 @@ def _build_training_config(
         split=split,
         artifacts_dir=artifacts_dir,
         models=models,
+        forecast_window=forecast_window,
     )
 
 

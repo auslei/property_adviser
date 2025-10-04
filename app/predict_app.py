@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import logging
-import traceback
 import math
+import re
+import traceback
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 try:
     import pandas as pd
@@ -18,10 +20,12 @@ from property_adviser.predict.feature_store import (
     feature_store_path,
     list_streets,
     list_suburbs,
+    latest_sale_year_month,
 )
 from property_adviser.predict.model_prediction import (
     predict_property_price,
     predict_with_confidence_interval,
+    load_trained_model,
 )
 
 
@@ -95,6 +99,31 @@ def _feature_strengths() -> tuple[Dict[str, float], Dict[str, float]]:
     }
 
 
+
+@lru_cache(maxsize=1)
+def _load_model_bundle() -> tuple[Any, Dict[str, Any]]:
+    """Load the active model bundle exactly once per session."""
+    return load_trained_model()
+
+
+def _is_delta_target(metadata: Dict[str, Any]) -> bool:
+    target = metadata.get("target")
+    return isinstance(target, str) and target.endswith("_delta")
+
+
+def _forecast_window_label(metadata: Dict[str, Any]) -> str:
+    window = metadata.get("forecast_window")
+    if isinstance(window, (int, float)):
+        return f"{int(window)}m"
+    if isinstance(window, str) and window.strip():
+        return window
+    target_name = metadata.get("target")
+    if isinstance(target_name, str):
+        match = re.search(r"(\d+)", target_name)
+        if match:
+            return f"{match.group(1)}m"
+    return ""
+
 def _format_strength(feature_name: str) -> str:
     score_map, thresholds = _feature_strengths()
     aliases = FEATURE_ALIASES.get(feature_name, (feature_name,))
@@ -121,30 +150,57 @@ def _label(text: str, feature_name: str) -> str:
     return f"{text}{_format_strength(feature_name)}"
 
 
+
+
 def main() -> None:
     st.set_page_config(page_title="Property Price Predictor", layout="centered")
     st.title("Property Price Predictor")
     st.write(
-        "Provide the key property characteristics below. Known streets are loaded "
-        "from the latest derived dataset when available."
+        "Estimate the expected sale price 12 months from now using the latest promoted model bundle."
     )
+
     score_map, thresholds = _feature_strengths()
     if score_map:
         p25 = thresholds.get("p25", 0.25)
         p75 = thresholds.get("p75", 0.5)
         st.caption(
-            "Feature strength badges reflect training-time scores relative to the selected "
-            f"feature set: :green[strong ≥{p75:.2f}], :orange[medium ≥{p25:.2f}], "
-            f":blue[light <{p25:.2f}]."
+            "Feature strength badges reflect training-time scores relative to the selected feature set: "
+            f":green[strong ≥{p75:.2f}], :orange[medium ≥{p25:.2f}], :blue[light <{p25:.2f}]."
         )
+
+    try:
+        model, metadata = _load_model_bundle()
+    except FileNotFoundError as exc:
+        st.error(f"Model artefacts not found: {exc}")
+        return
+    except Exception as exc:  # pragma: no cover - defensive guard for UI
+        logging.exception("prediction.load_model_failed", exc_info=exc)
+        st.error("Failed to load the trained model. Please retrain or promote a model bundle.")
+        return
+
+    forecast_window = _forecast_window_label(metadata) or "12m"
+    target_name = metadata.get("target", "unknown target")
+    selected_model = metadata.get("selected_model") or metadata.get("model") or "unknown model"
 
     try:
         streets = list_streets()
         suburbs = list_suburbs()
         store_path = feature_store_path()
-    except FileNotFoundError as exc:
+        observation_yearmonth = latest_sale_year_month()
+    except (FileNotFoundError, ValueError) as exc:
         st.error(str(exc))
         return
+
+    obs_year = observation_yearmonth // 100
+    obs_month = observation_yearmonth % 100
+    try:
+        observation_label = datetime(obs_year, obs_month, 1).strftime("%B %Y")
+    except ValueError:
+        observation_label = str(observation_yearmonth)
+
+    st.caption(
+        f"Active model: {selected_model} → {target_name} ({forecast_window}). Baseline month: {observation_label}."
+    )
 
     suburb = None
     if suburbs:
@@ -160,28 +216,8 @@ def main() -> None:
         st.warning("No street column found in the derived dataset. Enter street manually.")
         street = st.text_input(_label("Street", "street"))
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        sale_year = st.number_input(
-            _label("Sale Year", "saleYear"),
-            min_value=2000,
-            max_value=2100,
-            value=2025,
-            step=1,
-        )
-    with col2:
-        sale_month = st.number_input(
-            _label("Sale Month", "saleMonth"),
-            min_value=1,
-            max_value=12,
-            value=6,
-            step=1,
-        )
-
-    yearmonth = int(sale_year * 100 + sale_month)
-
-    col3, col4, col5 = st.columns(3)
-    with col3:
         bed = st.number_input(
             _label("Bedrooms", "bed"),
             min_value=0,
@@ -189,7 +225,7 @@ def main() -> None:
             value=3,
             step=1,
         )
-    with col4:
+    with col2:
         bath = st.number_input(
             _label("Bathrooms", "bath"),
             min_value=0,
@@ -197,7 +233,7 @@ def main() -> None:
             value=2,
             step=1,
         )
-    with col5:
+    with col3:
         car = st.number_input(
             _label("Car Spaces", "car"),
             min_value=0,
@@ -224,15 +260,19 @@ def main() -> None:
         value=180.0,
         step=10.0,
     )
+
+    current_year = datetime.now().year
+    default_year_built = min(current_year, 1998)
     year_built = st.number_input(
         _label("Year Built", "yearBuilt"),
         min_value=1800,
-        max_value=int(sale_year),
-        value=1998,
+        max_value=current_year,
+        value=default_year_built,
         step=1,
     )
 
-    if st.button("Predict Price", type="primary"):
+    button_label = f"Predict {forecast_window} price"
+    if st.button(button_label, type="primary"):
         if not street:
             st.error("Street is required for prediction.")
             return
@@ -240,8 +280,8 @@ def main() -> None:
             st.error("Suburb is required for prediction.")
             return
         try:
-            price = predict_property_price(
-                yearmonth=yearmonth,
+            result = predict_with_confidence_interval(
+                yearmonth=observation_yearmonth,
                 bed=int(bed),
                 bath=int(bath),
                 car=int(car),
@@ -251,19 +291,10 @@ def main() -> None:
                 land_size=land_size or None,
                 floor_size=floor_size or None,
                 year_built=int(year_built) if year_built else None,
+                model=model,
+                metadata=metadata,
             )
-            ci = predict_with_confidence_interval(
-                yearmonth=yearmonth,
-                bed=int(bed),
-                bath=int(bath),
-                car=int(car),
-                property_type=property_type,
-                street=street,
-                suburb=suburb,
-                land_size=land_size or None,
-                floor_size=floor_size or None,
-                year_built=int(year_built) if year_built else None,
-            )
+            price = result["predicted_price"]
         except FileNotFoundError as exc:
             st.error(str(exc))
             return
@@ -273,17 +304,30 @@ def main() -> None:
             st.code(traceback.format_exc())
             return
 
-        st.subheader("Estimate")
+        st.subheader(f"Projected Price ({forecast_window} outlook)")
         st.metric("Predicted Price", f"${price:,.0f}")
 
-        margin = ci["upper_bound"] - ci["lower_bound"]
+        raw_delta = result.get("raw_prediction")
+        base_value = result.get("base_value")
+        if raw_delta is not None and _is_delta_target(metadata):
+            delta_pct = raw_delta * 100.0
+            if base_value:
+                st.caption(
+                    f"Projected change: {delta_pct:+.2f}% relative to ${base_value:,.0f}."
+                )
+            else:
+                st.caption(f"Projected change: {delta_pct:+.2f}%")
+
+        margin = result["upper_bound"] - result["lower_bound"]
         st.caption(
             "Confidence interval assumes normal error using validation RMSE. "
-            f"(±${margin / 2:,.0f} around the estimate at {ci['confidence_level']:.0%} confidence.)"
+            f"(±${margin / 2:,.0f} around the estimate at {result['confidence_level']:.0%} confidence.)"
         )
         st.write(
-            f"Lower bound: ${ci['lower_bound']:,.0f} — Upper bound: ${ci['upper_bound']:,.0f}"
+            f"Lower bound: ${result['lower_bound']:,.0f} — Upper bound: ${result['upper_bound']:,.0f}"
         )
+
+
 
 
 if __name__ == "__main__":

@@ -2,10 +2,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import json
 import numpy as np
 import pandas as pd
 
 from property_adviser.core.artifacts import load_model_artifacts
+from property_adviser.core.paths import MODELS_DIR
 from property_adviser.predict.feature_store import (
     fetch_reference_features,
     list_streets,
@@ -20,6 +22,80 @@ def load_trained_model() -> tuple:
     artifacts = load_model_artifacts()
     return artifacts.model, artifacts.metadata
 
+
+
+
+def _target_is_delta(metadata: Dict[str, Any]) -> bool:
+    target = metadata.get("target")
+    return isinstance(target, str) and target.endswith("_delta")
+
+
+def _base_candidates(metadata: Dict[str, Any]) -> List[str]:
+    candidates: List[str] = []
+    target_info = metadata.get("target_output_info")
+    if isinstance(target_info, dict):
+        base_col = target_info.get("base_column")
+        if isinstance(base_col, str):
+            candidates.append(base_col)
+    candidates.extend([
+        "current_price_median",
+        "suburb_price_median_current",
+        "price_current_median",
+    ])
+    return candidates
+
+
+def _convert_prediction(raw_value: float, input_row: pd.Series, metadata: Dict[str, Any]) -> tuple[float, float, Optional[float]]:
+    actual = float(raw_value)
+    base_value: Optional[float] = None
+    if _target_is_delta(metadata):
+        for column in _base_candidates(metadata):
+            if column and column in input_row.index:
+                candidate = input_row[column]
+                if candidate is None or (isinstance(candidate, float) and np.isnan(candidate)):
+                    continue
+                base_value = float(candidate)
+                actual = base_value * (1.0 + float(raw_value))
+                break
+    return actual, float(raw_value), base_value
+
+
+def _predict_single(
+    *,
+    yearmonth: int,
+    bed: int,
+    bath: int,
+    car: int,
+    property_type: str,
+    street: str,
+    suburb: str,
+    land_size: Optional[float],
+    floor_size: Optional[float],
+    year_built: Optional[int],
+    model: Optional[Any],
+    metadata: Optional[Dict[str, Any]],
+) -> tuple[float, float, Optional[float], Any, Dict[str, Any]]:
+    if model is None or metadata is None:
+        model, metadata = load_trained_model()
+
+    properties = [
+        {
+            "yearmonth": yearmonth,
+            "bed": bed,
+            "bath": bath,
+            "car": car,
+            "propertyType": property_type,
+            "street": street,
+            "suburb": suburb,
+            "landSize": land_size,
+            "floorSize": floor_size,
+            "yearBuild": year_built,
+        }
+    ]
+    input_df = _prepare_prediction_data(properties, metadata)
+    raw_value = float(model.predict(input_df)[0])
+    actual, raw_value, base_value = _convert_prediction(raw_value, input_df.iloc[0], metadata)
+    return actual, raw_value, base_value, model, metadata
 
 def _prepare_prediction_data(
     properties: List[Dict[str, Any]], metadata: Dict[str, Any]
@@ -173,49 +249,38 @@ def predict_property_price(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> float:
     """Predict sale price for a single property using the trained model."""
-    if model is None or metadata is None:
-        model, metadata = load_trained_model()
-    
-    properties = [
-        {
-            "yearmonth": yearmonth,
-            "bed": bed,
-            "bath": bath,
-            "car": car,
-            "propertyType": property_type,
-            "street": street,
-            "suburb": suburb,
-            "landSize": land_size,
-            "floorSize": floor_size,
-            "yearBuild": year_built,
-        }
-    ]
-    input_data = _prepare_prediction_data(properties, metadata)
-    
-    # Make prediction
-    prediction = model.predict(input_data)
-    
-    # Return the predicted price
-    return float(prediction[0])
+    actual, _, _, _, _ = _predict_single(
+        yearmonth=yearmonth,
+        bed=bed,
+        bath=bath,
+        car=car,
+        property_type=property_type,
+        street=street,
+        suburb=suburb,
+        land_size=land_size,
+        floor_size=floor_size,
+        year_built=year_built,
+        model=model,
+        metadata=metadata,
+    )
+    return actual
 
 
 def predict_property_prices_batch(
     properties: List[Dict[str, Any]]
 ) -> List[float]:
-    """
-    Predict property prices for multiple properties at once. Each dictionary should
-    contain at minimum: `saleYearMonth`, `suburb`, `bed`, `bath`, `car`, `propertyType`, and
-    may optionally include `street`, `landSize`, `floorSize`, `yearBuild`.
-    """
+    """Predict property prices for multiple properties at once."""
     model, metadata = load_trained_model()
-    
     input_data = _prepare_prediction_data(properties, metadata)
-    
-    # Make predictions
-    predictions = model.predict(input_data)
-    
-    # Return list of predicted prices
-    return [float(pred) for pred in predictions]
+    raw_predictions = model.predict(input_data)
+
+    results: List[float] = []
+    for idx, raw_value in enumerate(raw_predictions):
+        actual, _, _ = _convert_prediction(float(raw_value), input_data.iloc[idx], metadata)
+        results.append(actual)
+    return results
+
+
 
 
 def predict_with_confidence_interval(
@@ -230,57 +295,81 @@ def predict_with_confidence_interval(
     land_size: Optional[float] = None,
     floor_size: Optional[float] = None,
     year_built: Optional[int] = None,
-    confidence_level: float = 0.95
+    confidence_level: float = 0.95,
+    model: Optional[Any] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, float]:
-    """
-    Predict property price with confidence interval using model uncertainty.
-
-    This is a simplified approach that uses the Root Mean Squared Error (RMSE)
-    from the model's validation set as a measure of uncertainty. A more robust
-    approach would involve techniques like bootstrapping or using models that
-    natively provide prediction intervals.
-    """
-    model, metadata = load_trained_model()
-    
-    # Load validation results from the latest model scores CSV (if available)
-    rmse = 0.0
-    score_files = sorted(
-        MODELS_DIR.glob("model_scores_*.csv"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    if score_files:
-        scores_df = pd.read_csv(score_files[0])
-        if not scores_df.empty and {"val_r2", "val_rmse"}.issubset(scores_df.columns):
-            top_row = scores_df.sort_values("val_r2", ascending=False).iloc[0]
-            rmse = float(top_row.get("val_rmse", 0.0) or 0.0)
-
-    # Make the primary prediction
-    predicted_price = predict_property_price(
-        yearmonth,
-        bed,
-        bath,
-        car,
-        property_type,
-        street,
-        suburb,
+    """Predict property price and a simple confidence interval."""
+    price, raw_value, base_value, model, metadata = _predict_single(
+        yearmonth=yearmonth,
+        bed=bed,
+        bath=bath,
+        car=car,
+        property_type=property_type,
+        street=street,
+        suburb=suburb,
         land_size=land_size,
         floor_size=floor_size,
         year_built=year_built,
         model=model,
         metadata=metadata,
     )
-    
-    # Calculate confidence interval (simplified approach)
-    z_score = 1.96 if confidence_level == 0.95 else 2.58  # Approximate z-score
-    margin_of_error = z_score * rmse
-    
+
+    rmse = 0.0
+    summary_candidates = [
+        MODELS_DIR / "model_final" / "best_model.json",
+        MODELS_DIR / "best_model.json",
+    ]
+    for candidate in summary_candidates:
+        if not candidate.exists():
+            continue
+        try:
+            payload = json.loads(candidate.read_text())
+        except Exception:
+            continue
+        metrics = payload.get("metrics") or {}
+        if isinstance(metrics, dict):
+            rmse_value = metrics.get("val_rmse")
+            if isinstance(rmse_value, (int, float)):
+                rmse = float(rmse_value)
+                if rmse:
+                    break
+
+    if rmse == 0.0:
+        score_candidates = []
+        for directory in (MODELS_DIR / "model_final", MODELS_DIR):
+            if directory.exists():
+                score_candidates.extend(directory.glob("model_scores_*.csv"))
+        score_files = sorted(
+            score_candidates,
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if score_files:
+            try:
+                scores_df = pd.read_csv(score_files[0])
+            except Exception:
+                scores_df = pd.DataFrame()
+            if not scores_df.empty and {"val_r2", "val_rmse"}.issubset(scores_df.columns):
+                top_row = scores_df.sort_values("val_r2", ascending=False).iloc[0]
+                rmse = float(top_row.get("val_rmse", 0.0) or 0.0)
+
+    z_score = 1.96 if confidence_level == 0.95 else 2.58
+    if base_value is not None and _target_is_delta(metadata):
+        margin_of_error = z_score * rmse * base_value
+    else:
+        margin_of_error = z_score * rmse
+
     return {
-        'predicted_price': predicted_price,
-        'lower_bound': predicted_price - margin_of_error,
-        'upper_bound': predicted_price + margin_of_error,
-        'confidence_level': confidence_level
+        "predicted_price": price,
+        "lower_bound": price - margin_of_error,
+        "upper_bound": price + margin_of_error,
+        "confidence_level": confidence_level,
+        "raw_prediction": raw_value,
+        "base_value": base_value,
     }
+
+
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 import pandas as pd
 
@@ -42,6 +42,21 @@ def _derive_output_path() -> Path:
 
 
 @lru_cache(maxsize=1)
+def _derive_detail_path() -> Optional[Path]:
+    try:
+        pre_cfg = load_config(PREPROCESS_CONFIG_PATH)
+        derivation_cfg = pre_cfg.get("derivation", {})
+        detail_path = derivation_cfg.get("detailed_output_path")
+        if detail_path:
+            candidate = _resolve_path(detail_path)
+            if candidate.exists():
+                return candidate
+    except Exception:
+        pass
+    return None
+
+
+@lru_cache(maxsize=1)
 def _street_column_name() -> str:
     try:
         pre_cfg = load_config(PREPROCESS_CONFIG_PATH)
@@ -67,6 +82,28 @@ def _load_dataframe() -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+@lru_cache(maxsize=1)
+def _load_detail_dataframe() -> pd.DataFrame:
+    detail_path = _derive_detail_path()
+    if detail_path is None or not detail_path.exists():
+        raise FileNotFoundError
+    if detail_path.suffix.lower() == ".parquet":
+        return pd.read_parquet(detail_path)
+    return pd.read_csv(detail_path)
+
+
+@lru_cache(maxsize=1)
+def latest_sale_year_month() -> int:
+    """Return the most recent saleYearMonth (or observingYearMonth) present in the derived dataset."""
+    df = _load_dataframe()
+    for column in ("saleYearMonth", "observingYearMonth", "observing_year_month"):
+        if column in df.columns:
+            series = pd.to_numeric(df[column], errors='coerce').dropna()
+            if not series.empty:
+                return int(series.max())
+    raise ValueError("Derived dataset is missing a usable sale year/month column.")
+
+
 def feature_store_path() -> Path:
     path = _derive_output_path()
     if path.exists():
@@ -77,7 +114,10 @@ def feature_store_path() -> Path:
 
 
 def list_streets() -> List[str]:
-    df = _load_dataframe()
+    try:
+        df = _load_detail_dataframe()
+    except FileNotFoundError:
+        df = _load_dataframe()
     street_col = _street_column_name()
     if street_col not in df.columns:
         return []

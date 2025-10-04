@@ -34,12 +34,19 @@ models:
       max_depth: [2, 3, 4]
       subsample: [0.7, 0.85, 1.0]
       min_samples_leaf: [1, 3]
-  AutoARIMA:
+  SARIMAX:
     enabled: true
     grid:
-      seasonal: [false]
-      m: [1, 3, 12]
-      maxiter: [50]
+      order:
+        - [1, 0, 0]
+        - [2, 0, 1]
+      seasonal_order:
+        - [0, 0, 0, 0]
+        - [1, 0, 0, 12]
+      trend: [null, "c"]
+      enforce_stationarity: [false]
+      enforce_invertibility: [false]
+      maxiter: [100]
 
 targets:
   - name: price_future_6m

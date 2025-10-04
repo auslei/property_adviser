@@ -39,6 +39,7 @@ Engineer leak-safe features using deterministic inputs:
 - Age features (`propertyAge`, `propertyAgeBand`) with configurable buckets.
 - Optional macro joins via `macro_join` config, which calls `property_adviser.macro.add_macro_yearly` to merge annual CPI/cash-rate/ASX features on `saleYear`.
 - Segment builder now computes trend-aware features (`current_price_median_z_12m`, rolling means/std, YoY/6m change) and derives future diffs/deltas (e.g. `price_future_6m_delta`) so downstream models can forecast relative moves instead of raw levels.
+- Future-target outputs are fully configuration-driven: each entry in `future_targets` can declare a `base_column`, a set of `derived` operations (delta/diff/ratio/copy), and optional `smooth` settings (window/min periods/derived outputs) without touching code.
 - Configurable bucketing turns raw attributes into segment features (`bed_bucket`, `bath_bucket`, `land_bucket`, `floor_bucket`) using YAML-defined bins or mappings.
 - Segment aggregation builds one row per observation month using the configured grouping keys (default: suburb + property type + buckets). Aggregated metrics (`current_price_median`, `transaction_count`, etc.) and lead targets (e.g., `price_future_6m`, `price_future_12m`) are computed from the raw data with look-ahead horizons. Use `aggregations.carry` to keep deterministic historical roll-ups (e.g., `suburb_price_median_6m`) without hand-writing duplicate metric entries.
 

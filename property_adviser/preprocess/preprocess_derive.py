@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Sequence, Optional, Tuple
+from typing import Any, Dict, List, Sequence, Optional, Tuple, Mapping
 import numpy as np
 import pandas as pd
 import re
@@ -140,6 +140,95 @@ def _join_macro_features(df: pd.DataFrame, spec: Dict[str, Any]) -> pd.DataFrame
         cols_added=len(set(joined.columns) - set(df.columns)),
     )
     return joined
+
+
+DEFAULT_BASE_COLUMN = "current_price_median"
+_DEFAULT_OPERATION_SUFFIX = {
+    "delta": "_delta",
+    "diff": "_diff",
+    "ratio": "_ratio",
+    "copy": "",
+}
+
+
+def _normalise_future_operations(operations: Optional[Sequence[Dict[str, Any]]], *, default_base: str) -> List[Dict[str, Any]]:
+    if not operations:
+        return [
+            {"type": "delta", "base_column": default_base, "suffix": _DEFAULT_OPERATION_SUFFIX["delta"]},
+            {"type": "diff", "base_column": default_base, "suffix": _DEFAULT_OPERATION_SUFFIX["diff"]},
+        ]
+
+    normalised: List[Dict[str, Any]] = []
+    for op in operations:
+        if isinstance(op, str):
+            op = {"type": op}
+        if not isinstance(op, Mapping):
+            continue
+        op_type = str(op.get("type", "delta")).lower()
+        base_col = str(op.get("base_column") or default_base)
+        suffix = op.get("suffix")
+        if suffix is None:
+            suffix = _DEFAULT_OPERATION_SUFFIX.get(op_type, "")
+        normalised.append(
+            {
+                "type": op_type,
+                "base_column": base_col,
+                "suffix": suffix,
+                "output": op.get("output"),
+                "drop_na": op.get("drop_na"),
+            }
+        )
+    return normalised
+
+
+def _apply_future_operations(
+    df: pd.DataFrame,
+    *,
+    base_name: str,
+    values: pd.Series,
+    operations: Sequence[Dict[str, Any]],
+    default_drop: bool,
+) -> Tuple[List[str], List[Dict[str, Any]]]:
+    drop_columns: List[str] = []
+    produced: List[Dict[str, Any]] = []
+    for op in operations:
+        op_type = op.get("type")
+        base_col = op.get("base_column")
+        if not base_col or base_col not in df.columns:
+            warn("derive.future_target", reason="missing_base", target=base_name, base=base_col)
+            continue
+        base_series = df[base_col]
+        output_name = op.get("output")
+        if not output_name:
+            suffix = op.get("suffix") or ""
+            output_name = f"{base_name}{suffix}"
+        try:
+            if op_type == "delta":
+                df[output_name] = _safe_ratio(values, base_series) - 1
+            elif op_type == "ratio":
+                df[output_name] = _safe_ratio(values, base_series)
+            elif op_type == "diff":
+                df[output_name] = values - base_series
+            elif op_type == "copy":
+                df[output_name] = values
+            else:
+                warn("derive.future_target", reason="unknown_operation", target=base_name, operation=op_type)
+                continue
+        except Exception as exc:
+            warn("derive.future_target", reason="operation_failed", target=base_name, operation=op_type, error=str(exc))
+            continue
+        drop_flag = op.get("drop_na")
+        if drop_flag is None:
+            drop_flag = default_drop
+        if drop_flag:
+            drop_columns.append(output_name)
+        produced.append({
+            "type": op_type,
+            "output": output_name,
+            "base_column": base_col,
+            "drop_na": drop_flag,
+        })
+    return drop_columns, produced
 
 
 def _compute_future_targets(
@@ -332,32 +421,20 @@ def build_segments(
     if future_df is not None:
         segment_df = segment_df.merge(future_df, on=group_cols, how="left")
 
-    # Optional dropping of rows with missing future targets when drop_na flag set
-    for spec in future_specs:
-        target_name = spec.get("name")
-        if spec.get("drop_na") and target_name in segment_df.columns:
-            segment_df = segment_df[segment_df[target_name].notna()]
-        smooth_flag = spec.get("smooth")
-        if smooth_flag:
-            smooth_col = f"{target_name}_smooth"
-            if smooth_col in segment_df.columns:
-                segment_df = segment_df[segment_df[smooth_col].notna()]
-
-
     # ------------------------------------------------------------------
     # Trend / relative features
     # ------------------------------------------------------------------
+    grouped_keys = None
     if keys:
         segment_df = segment_df.sort_values(keys + [month_col])
-        group = segment_df.groupby(keys, sort=False)
+        grouped_keys = segment_df.groupby(keys, sort=False)
 
-        # Rolling statistics for current price median
         current_col = "current_price_median"
         if current_col in segment_df.columns:
-            rolling_mean_12 = group[current_col].transform(lambda s: s.rolling(window=12, min_periods=3).mean())
-            rolling_std_12 = group[current_col].transform(lambda s: s.rolling(window=12, min_periods=3).std())
-            lag_12 = group[current_col].shift(12)
-            lag_6 = group[current_col].shift(6)
+            rolling_mean_12 = grouped_keys[current_col].transform(lambda s: s.rolling(window=12, min_periods=3).mean())
+            rolling_std_12 = grouped_keys[current_col].transform(lambda s: s.rolling(window=12, min_periods=3).std())
+            lag_12 = grouped_keys[current_col].shift(12)
+            lag_6 = grouped_keys[current_col].shift(6)
 
             segment_df["current_price_median_roll_mean_12m"] = rolling_mean_12
             segment_df["current_price_median_roll_std_12m"] = rolling_std_12
@@ -372,43 +449,129 @@ def build_segments(
                 segment_df[current_col] / lag_6.replace({0.0: np.nan})
             ) - 1
 
-    if "current_price_median" in segment_df.columns and "suburb_price_median_current" in segment_df.columns:
+    if ("current_price_median" in segment_df.columns and 
+            "suburb_price_median_current" in segment_df.columns):
         segment_df["current_price_median_rel_suburb"] = (
             segment_df["current_price_median"]
             / segment_df["suburb_price_median_current"].replace({0.0: np.nan})
         )
 
-    base_current = segment_df.get("current_price_median")
-    if base_current is not None:
-        safe_base = base_current.replace({0.0: np.nan})
-        grouped = segment_df.groupby(keys, sort=False) if keys else None
-        for spec in future_specs:
-            name = spec.get("name")
-            if not name or name not in segment_df.columns:
-                continue
-            future_vals = segment_df[name]
-            segment_df[f"{name}_delta"] = future_vals / safe_base - 1
-            segment_df[f"{name}_diff"] = future_vals - base_current
 
-            if grouped is not None and spec.get("smooth"):
-                window = int(spec.get("smooth", 12))
-                smooth_col = f"{name}_smooth"
-                smooth_vals = grouped[name].transform(
-                    lambda s: s.rolling(window=window, min_periods=max(3, window // 2)).mean()
-                )
-                segment_df[smooth_col] = smooth_vals
-                segment_df[f"{smooth_col}_delta"] = smooth_vals / safe_base - 1
-                segment_df[f"{smooth_col}_diff"] = smooth_vals - base_current
-
+    # Future target derivations driven by configuration
+    drop_targets: List[str] = []
+    created_columns: set[str] = set()
+    future_details: Dict[str, Any] = {}
+    future_output_details: Dict[str, Any] = {}
+    future_group = grouped_keys if keys else None
     for spec in future_specs:
-        delta_col = f"{spec.get('name')}_delta"
-        if spec.get("drop_na") and delta_col in segment_df.columns:
-            segment_df = segment_df[segment_df[delta_col].notna()]
+        name = spec.get("name")
+        if not name or name not in segment_df.columns:
+            continue
 
-        if spec.get("smooth"):
-            smooth_delta = f"{spec.get('name')}_smooth_delta"
-            if spec.get("drop_na") and smooth_delta in segment_df.columns:
-                segment_df = segment_df[segment_df[smooth_delta].notna()]
+        target_values = segment_df[name]
+        base_column = str(spec.get("base_column") or DEFAULT_BASE_COLUMN)
+        operations = _normalise_future_operations(spec.get("derived"), default_base=base_column)
+        drop_cols, produced_ops = _apply_future_operations(
+            segment_df,
+            base_name=name,
+            values=target_values,
+            operations=operations,
+            default_drop=bool(spec.get("drop_na")),
+        )
+        drop_targets.extend(drop_cols)
+        created_columns.add(name)
+        created_columns.update(info["output"] for info in produced_ops)
+        future_details[name] = {
+            "base_column": base_column,
+            "drop_na": bool(spec.get("drop_na")),
+            "operations": produced_ops,
+        }
+        future_output_details.update(
+            {
+                info["output"]: {
+                    "type": info["type"],
+                    "base_column": info["base_column"],
+                    "parent": name,
+                    "drop_na": info["drop_na"],
+                }
+                for info in produced_ops
+            }
+        )
+        if spec.get("drop_na") and name in segment_df.columns:
+            drop_targets.append(name)
+
+        smooth_cfg = spec.get("smooth")
+        if not smooth_cfg:
+            continue
+        if isinstance(smooth_cfg, (int, float)):
+            smooth_cfg = {"window": int(smooth_cfg)}
+        window = int(smooth_cfg.get("window", 12))
+        min_periods = int(smooth_cfg.get("min_periods", max(3, window // 2)))
+        smooth_name = str(smooth_cfg.get("name") or f"{name}_smooth")
+
+        if future_group is not None:
+            smooth_vals = future_group[name].transform(
+                lambda s: s.rolling(window=window, min_periods=min_periods).mean(),
+            )
+        else:
+            smooth_vals = target_values.rolling(window=window, min_periods=min_periods).mean()
+        segment_df[smooth_name] = smooth_vals
+        created_columns.add(smooth_name)
+
+        smooth_drop_default = smooth_cfg.get("drop_na")
+        if smooth_drop_default is None:
+            smooth_drop_default = bool(spec.get("drop_na"))
+        if smooth_drop_default:
+            drop_targets.append(smooth_name)
+
+        smooth_base = str(smooth_cfg.get("base_column") or base_column)
+        smooth_ops = _normalise_future_operations(smooth_cfg.get("derived"), default_base=smooth_base)
+        drop_cols, produced_smooth_ops = _apply_future_operations(
+            segment_df,
+            base_name=smooth_name,
+            values=segment_df[smooth_name],
+            operations=smooth_ops,
+            default_drop=smooth_drop_default,
+        )
+        drop_targets.extend(drop_cols)
+        created_columns.update(info["output"] for info in produced_smooth_ops)
+        future_details.setdefault(name, {})["smooth"] = {
+            "name": smooth_name,
+            "window": window,
+            "min_periods": min_periods,
+            "base_column": smooth_base,
+            "drop_na": smooth_drop_default,
+            "operations": produced_smooth_ops,
+        }
+        future_output_details[smooth_name] = {
+            "type": "smooth",
+            "base_column": smooth_base,
+            "parent": name,
+            "drop_na": smooth_drop_default,
+            "window": window,
+            "min_periods": min_periods,
+        }
+        future_output_details.update(
+            {
+                info["output"]: {
+                    "type": info["type"],
+                    "base_column": info["base_column"],
+                    "parent": smooth_name,
+                    "drop_na": info["drop_na"],
+                }
+                for info in produced_smooth_ops
+            }
+        )
+    if drop_targets:
+        existing = [col for col in set(drop_targets) if col in segment_df.columns]
+        if existing:
+            segment_df = segment_df.dropna(subset=existing)
+
+    future_counts = {
+        col: int(segment_df[col].notna().sum())
+        for col in sorted(created_columns)
+        if col in segment_df.columns
+    }
 
     segment_df = segment_df.reset_index(drop=True)
     segment_df["observingYearMonth"] = segment_df[month_col]
@@ -419,9 +582,9 @@ def build_segments(
         "rows": int(segment_df.shape[0]),
         "groups": int(segment_df[keys].drop_duplicates().shape[0]) if keys else int(segment_df.shape[0]),
         "future_targets": {
-            spec.get("name"): int(segment_df[spec.get("name")].notna().sum())
-            for spec in future_specs
-            if spec.get("name") in segment_df.columns
+            "counts": future_counts,
+            "details": future_details,
+            "outputs": future_output_details,
         },
     }
 

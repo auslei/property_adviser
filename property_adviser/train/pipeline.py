@@ -23,7 +23,8 @@ from sklearn.compose import TransformedTargetRegressor
 from property_adviser.core.app_logging import log, time_block
 from property_adviser.core.io import ensure_dir, load_parquet_or_csv, save_parquet_or_csv, write_list
 from property_adviser.train.config import TrainingConfig
-from property_adviser.train.arima_regressor import AutoARIMARegressor
+from property_adviser.config import PROJECT_ROOT
+from property_adviser.train.sarimax_regressor import SarimaxRegressor
 
 MODEL_FACTORY = {
     "LinearRegression": LinearRegression,
@@ -32,14 +33,32 @@ MODEL_FACTORY = {
     "ElasticNet": ElasticNet,
     "RandomForestRegressor": RandomForestRegressor,
     "GradientBoostingRegressor": GradientBoostingRegressor,
-    "AutoARIMA": AutoARIMARegressor,
+    "SARIMAX": SarimaxRegressor,
 }
+
+_PREPROCESS_METADATA_CACHE: Optional[Dict[str, Any]] = None
+
+
+def _load_preprocess_metadata() -> Dict[str, Any]:
+    global _PREPROCESS_METADATA_CACHE
+    if _PREPROCESS_METADATA_CACHE is None:
+        path = PROJECT_ROOT / "data" / "preprocess" / "metadata.json"
+        if path.exists():
+            try:
+                _PREPROCESS_METADATA_CACHE = json.loads(path.read_text())
+            except Exception:
+                _PREPROCESS_METADATA_CACHE = {}
+        else:
+            _PREPROCESS_METADATA_CACHE = {}
+    return _PREPROCESS_METADATA_CACHE
+
 
 
 @dataclass
 class TrainingResult:
     name: str
     target: str
+    forecast_window: Optional[str]
     timestamp: str
     best_model: str
     best_model_path: Path
@@ -472,6 +491,7 @@ def run_training(config: TrainingConfig) -> TrainingResult:
     best_metrics = next((r for r in results if r["model"] == best_model_name), None)
     summary = {
         "model": best_model_name,
+        "forecast_window": config.forecast_window,
         "timestamp": timestamp,
         "validation_month": validation_month,
         "metrics": best_metrics or {},
@@ -501,13 +521,30 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         config_name=config.name,
     )
 
+    preprocess_meta = _load_preprocess_metadata()
+    target_output_info = None
+    if preprocess_meta:
+        future_meta = preprocess_meta.get("segments", {}).get("future_targets", {})
+        outputs_meta = future_meta.get("outputs") if isinstance(future_meta, dict) else None
+        if isinstance(outputs_meta, dict):
+            target_output_info = outputs_meta.get(config.target)
+
     metadata_payload = {
         "target": config.target,
+        "forecast_window": config.forecast_window,
         "validation_month": validation_month,
         "models_considered": [r["model"] for r in results],
         "selected_model": best_model_name,
         "feature_metadata": metadata,
     }
+    if target_output_info:
+        metadata_payload["target_output_info"] = target_output_info
+        base_col = target_output_info.get("base_column")
+        if isinstance(base_col, str):
+            metadata_payload.setdefault("base_column", base_col)
+        target_type = target_output_info.get("type")
+        if isinstance(target_type, str):
+            metadata_payload["target_type"] = target_type
     metadata_path = config.input.base / "feature_metadata.json"
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata_payload, indent=2))
@@ -531,6 +568,7 @@ def run_training(config: TrainingConfig) -> TrainingResult:
     return TrainingResult(
         name=config.name,
         target=config.target,
+        forecast_window=config.forecast_window,
         timestamp=timestamp,
         best_model=best_model_name,
         best_model_path=model_path,

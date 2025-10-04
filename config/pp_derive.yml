@@ -151,7 +151,7 @@ buckets:
 
 # 6) Segment Grouping (used for future target generation / aggregation)
 grouping:
-  enabled: true
+  enabled: false
   month_col: saleYearMonth
   keys:
     - suburb
@@ -224,6 +224,10 @@ future_targets:
     window: 1
     min_periods: 6
     drop_na: true
+    base_column: current_price_median
+    derived:
+      - type: delta
+      - type: diff
   - name: price_future_12m
     source: salePrice
     agg: median
@@ -231,4 +235,15 @@ future_targets:
     window: 1
     min_periods: 12
     drop_na: true
-    smooth: 12
+    base_column: current_price_median
+    derived:
+      - type: delta
+      - type: diff
+    smooth:
+      window: 12
+      min_periods: 6
+      drop_na: true
+      base_column: current_price_median
+      derived:
+        - type: delta
+        - type: diff
