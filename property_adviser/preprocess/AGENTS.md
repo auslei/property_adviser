@@ -14,39 +14,63 @@
 ## Structure
 ```
 property_adviser/preprocess/
-  config.py            # Typed config schema + loader
+  clean/
+    __init__.py
+    engine.py          # cleaning implementation (formerly preprocess_clean)
+  derive/
+    __init__.py
+    config.py          # new derive spec parsing (spec_version 1)
+    engine.py          # declarative driver / registry
+    legacy.py          # legacy imperative implementation (spec_version 0)
+    steps/
+      base.py          # context + base classes
+      simple.py        # expressions, mappings, street parsing, etc.
+      aggregate.py     # group-level aggregations
+      time_aggregate.py# windowed past/future metrics
+      join.py          # dataset joins via shared IO
+      binning.py       # fixed/mapping buckets
+      rolling.py       # grouped rolling windows
+  config.py            # typed PreprocessConfig loader
   pipeline.py          # run_preprocessing orchestration + metadata builder
   cli.py               # CLI / thin wrappers around the pipeline
-  preprocess_clean.py  # Cleaning stage
-  preprocess_derive.py # Derivation stage
+  preprocess_clean.py  # compatibility re-export
+  preprocess_derive.py # compatibility wrappers around engine/legacy
 ```
 Supporting config lives under `config/`:
 - `config/preprocessing.yml` (controller)
 - `config/pp_clean.yml`
-- `config/pp_derive.yml`
+- `config/pp_derive.yml` (spec_version 1 declarative steps)
+- `config/pp_derive_legacy.yml` (legacy derive DSL)
 
-## Cleaning (`preprocess_clean.py`)
+## Cleaning (`clean/engine.py`)
 - Standardises categorical noise (e.g., `house`, `House`, `Town House` → `House`). Case-insensitive keyword matching supports optional defaults via `default` / `preserve_unmatched` flags so unmatched values can fall back to labels like `Unknown`.
 - Renames source columns to canonical names and coerces numeric dtypes.
 - Optionally records dropped rows to the configured audit location.
+- Programmatic entry points: `clean.clean_data(...)` for inline pipelines, `clean.run_cleaning_stage(cfg)` for config-driven execution.
 
-## Derivation (`preprocess_derive.py`)
-Engineer leak-safe features using deterministic inputs:
-- Seasonality encodings (`saleMonth_sin`, `saleMonth_cos`, `month_id`).
-- Suburb rolling aggregates for price, volume, and volatility across 3/6/12 windows.
-- Property-type scoped metrics (e.g., `suburb_house_price_median_current`).
-- Ratio features (`ratio_land_per_bed`, `price_per_sqm_land`, etc.) built via `_safe_ratio`; declare them with `fn: ratio` / `fn: price_per_area` in `pp_derive.yml` and optional `denominator_offset` values to emulate the legacy “plus one” patterns safely.
-- Age features (`propertyAge`, `propertyAgeBand`) with configurable buckets.
-- Optional macro joins via `macro_join` config, which calls `property_adviser.macro.add_macro_yearly` to merge annual CPI/cash-rate/ASX features on `saleYear`.
-- Segment builder now computes trend-aware features (`current_price_median_z_12m`, rolling means/std, YoY/6m change) and derives future diffs/deltas (e.g. `price_future_6m_delta`) so downstream models can forecast relative moves instead of raw levels.
-- Future-target outputs are fully configuration-driven: each entry in `future_targets` can declare a `base_column`, a set of `derived` operations (delta/diff/ratio/copy), and optional `smooth` settings (window/min periods/derived outputs) without touching code.
-- Configurable bucketing turns raw attributes into segment features (`bed_bucket`, `bath_bucket`, `land_bucket`, `floor_bucket`) using YAML-defined bins or mappings.
-- Segment aggregation builds one row per observation month using the configured grouping keys (default: suburb + property type + buckets). Aggregated metrics (`current_price_median`, `transaction_count`, etc.) and lead targets (e.g., `price_future_6m`, `price_future_12m`) are computed from the raw data with look-ahead horizons. Use `aggregations.carry` to keep deterministic historical roll-ups (e.g., `suburb_price_median_6m`) without hand-writing duplicate metric entries.
+## Derivation (`derive/engine.py`)
+Engineer leak-safe features using deterministic inputs through declarative steps:
+- **Simple**: expressions (`method: expr`), categorical mappings, month index / cyclical encodings, and property-age helpers reuse the legacy implementations while exposing configuration-first APIs.
+- **Aggregate**: group-level aggregations with optional `min_count` guards populate metrics such as suburb medians/counts without imperative loops.
+- **Time Aggregate**: past/future windows expressed via `{past, future, unit}` produce rolling medians, momentum deltas, and future targets (`price_future_6m`, etc.) while respecting leakage controls (`include_current: false` by default).
+- **Join**: standardized dataset joins resolve aliases declared in `settings.datasets` (e.g., macro CSVs) and keep left-hand columns stable.
+- **Bin**: fixed or mapping-based buckets replace bespoke bucketing helpers; supply edges/labels via YAML.
+- **Rolling**: grouped rolling windows (mean/median/std/etc.) deliver smoothed targets and volatility measures for downstream modelling.
+
+### Spec versions
+- **spec_version 1** (`config/pp_derive.yml`): preferred declarative format. Steps execute in-order, enabling fine-grained control over dependencies (e.g., aggregate → expression → rolling). The engine collects artefacts and applies optional `settings.default_fillna` at the end.
+- **Legacy** (`config/pp_derive_legacy.yml`): still supported through `derive/legacy.py` to keep existing pipelines and tests stable while teams migrate step-by-step. Run configs without `spec_version` continue to pass through the legacy code path, including segment generation via `build_segments`.
+
+### Adding a new step
+1. Extend `derive/steps/` with a focussed implementation (subclass `DeriveStep`).
+2. Register it in `derive/steps/__init__.py` so the engine can instantiate it.
+3. Document the new `type` (and required fields) in `AGENTS.md` along with sample YAML.
+4. Add targeted unit coverage (see `tests/test_preprocess_derive.py::test_new_spec_expression_and_aggregate`).
 
 ## Outputs
 All files are written using `property_adviser.core.io.save_parquet_or_csv`:
 - `data/preprocess/cleaned.csv`
-- `data/preprocess/segments.parquet` (segment-level dataset)
+- `data/preprocess/segments.parquet` (segment-level dataset; optional for spec v1 unless a dedicated segment step runs)
 - `data/preprocess/derived_detailed.parquet` (optional property-level snapshot)
 - `data/preprocess/metadata.json`
 - Optional `data/preprocess/dropped_rows.parquet`

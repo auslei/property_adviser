@@ -12,7 +12,7 @@ The workflow is modular and agent-friendly: **Macro data → Preprocessing → F
 - `data/training` – feature matrices, targets, scores, selected feature lists
 - `data/macro` – macroeconomic series fetched from external sources
 - `models` – persisted models, score summaries
-- `config` – YAMLs for every stage (`macro.yml`, `preprocessing.yml`, `pp_clean.yml`, `pp_derive.yml`, `features.yml`, `model.yml`)
+- `config` – YAMLs for every stage (`macro.yml`, `preprocessing.yml`, `pp_clean.yml`, `pp_derive.yml`, `pp_derive_legacy.yml`, `features.yml`, `model.yml`)
 - `property_adviser/` – core Python package (`core`, `macro`, `preprocess`, `feature`, `train`, `predict`) with module docs co-located as `AGENTS.md`
 - `app/` – Streamlit applications (`predict_app.py`, `market_insights_app.py`) with their own `AGENTS.md`
 - Module docs live alongside code as `AGENTS.md`; shared contract notes are captured in the root `AGENTS.md` playbook.
@@ -42,7 +42,7 @@ Produces CPI, cash-rate, and ASX index tables under `data/macro/`, plus a merged
 ```bash
 uv run pa-preprocess --config config/preprocessing.yml --verbose
 ```
-`preprocessing.yml` orchestrates cleaning (`pp_clean.yml`) and derivation (`pp_derive.yml`). Outputs include `cleaned.parquet`, the segment dataset (`segments.parquet`) with forward targets/horizons, optional `derived_detailed.parquet`, metadata, and drop audits. Details live in `property_adviser/preprocess/AGENTS.md` (seasonality features, suburb trends, ratios, age buckets, macro joins, buckets, future targets, etc.).
+`preprocessing.yml` orchestrates cleaning (`pp_clean.yml`) and derivation (`pp_derive.yml`). The previous derivation config is retained as `pp_derive_legacy.yml` for back-compat. Outputs include `cleaned.parquet`, the segment dataset (`segments.parquet`) with forward targets/horizons, optional `derived_detailed.parquet`, metadata, and drop audits. Details live in `property_adviser/preprocess/AGENTS.md` (seasonality features, suburb trends, ratios, age buckets, macro joins, buckets, future targets, etc.).
 
 ### 2) Feature Selection
 ```bash

@@ -30,58 +30,20 @@
     "month_id",
     "saleMonth_sin",
     "saleMonth_cos",
-    "suburb_price_median_current",
-    "count",
-    "std",
+    "property_type_tag",
     "suburb_price_median_3m",
-    "suburb_price_median_6m",
-    "suburb_price_median_12m",
     "suburb_txn_count_3m",
+    "suburb_price_median_6m",
     "suburb_txn_count_6m",
+    "suburb_price_median_12m",
     "suburb_txn_count_12m",
-    "suburb_volatility_3m",
-    "suburb_volatility_6m",
-    "suburb_volatility_12m",
-    "suburb_delta_3m",
-    "suburb_delta_12m",
-    "suburb_house_price_median_current",
-    "suburb_house_txn_count_current",
-    "suburb_house_volatility_current",
-    "suburb_house_price_median_3m",
-    "suburb_house_price_median_6m",
-    "suburb_house_price_median_12m",
-    "suburb_house_txn_count_3m",
-    "suburb_house_txn_count_6m",
-    "suburb_house_txn_count_12m",
-    "suburb_house_volatility_3m",
-    "suburb_house_volatility_6m",
-    "suburb_house_volatility_12m",
-    "suburb_house_delta_3m",
-    "suburb_house_delta_12m",
-    "suburb_other_price_median_current",
-    "suburb_other_txn_count_current",
-    "suburb_other_volatility_current",
-    "suburb_other_price_median_3m",
-    "suburb_other_price_median_6m",
-    "suburb_other_price_median_12m",
-    "suburb_other_txn_count_3m",
-    "suburb_other_txn_count_6m",
-    "suburb_other_txn_count_12m",
-    "suburb_other_volatility_3m",
-    "suburb_other_volatility_6m",
-    "suburb_other_volatility_12m",
-    "suburb_other_delta_3m",
-    "suburb_other_delta_12m",
     "ratio_land_per_bed",
     "ratio_floor_per_bed",
     "ratio_car_per_bed",
     "ratio_bed_bath",
     "price_per_sqm_land",
     "price_per_sqm_floor",
-    "rel_price_vs_suburb_median",
-    "rel_street_effect",
-    "propertyAge",
-    "propertyAgeBand",
+    "year",
     "asx200_close",
     "asx200_yoy",
     "cpi_index_dec",
@@ -92,10 +54,30 @@
     "cash_rate_eoy",
     "cash_rate_change_avg",
     "cash_rate_change_eoy",
+    "suburb_price_median_current",
+    "street_price_median_current",
+    "rel_price_suburb",
+    "rel_price_street",
+    "propertyAge",
+    "propertyAgeBand",
     "bed_bucket",
     "bath_bucket",
     "land_bucket",
-    "floor_bucket"
+    "floor_bucket",
+    "current_price_median",
+    "current_price_mean",
+    "transaction_count",
+    "avg_land_size",
+    "avg_floor_size",
+    "price_future_6m",
+    "price_future_6m_delta",
+    "price_future_6m_diff",
+    "price_future_12m",
+    "price_future_12m_delta",
+    "price_future_12m_diff",
+    "price_future_12m_smooth",
+    "price_future_12m_smooth_delta",
+    "price_future_12m_smooth_diff"
   ],
   "numeric_columns": [
     "postcode",
@@ -112,57 +94,19 @@
     "month_id",
     "saleMonth_sin",
     "saleMonth_cos",
-    "suburb_price_median_current",
-    "count",
-    "std",
     "suburb_price_median_3m",
-    "suburb_price_median_6m",
-    "suburb_price_median_12m",
     "suburb_txn_count_3m",
+    "suburb_price_median_6m",
     "suburb_txn_count_6m",
+    "suburb_price_median_12m",
     "suburb_txn_count_12m",
-    "suburb_volatility_3m",
-    "suburb_volatility_6m",
-    "suburb_volatility_12m",
-    "suburb_delta_3m",
-    "suburb_delta_12m",
-    "suburb_house_price_median_current",
-    "suburb_house_txn_count_current",
-    "suburb_house_volatility_current",
-    "suburb_house_price_median_3m",
-    "suburb_house_price_median_6m",
-    "suburb_house_price_median_12m",
-    "suburb_house_txn_count_3m",
-    "suburb_house_txn_count_6m",
-    "suburb_house_txn_count_12m",
-    "suburb_house_volatility_3m",
-    "suburb_house_volatility_6m",
-    "suburb_house_volatility_12m",
-    "suburb_house_delta_3m",
-    "suburb_house_delta_12m",
-    "suburb_other_price_median_current",
-    "suburb_other_txn_count_current",
-    "suburb_other_volatility_current",
-    "suburb_other_price_median_3m",
-    "suburb_other_price_median_6m",
-    "suburb_other_price_median_12m",
-    "suburb_other_txn_count_3m",
-    "suburb_other_txn_count_6m",
-    "suburb_other_txn_count_12m",
-    "suburb_other_volatility_3m",
-    "suburb_other_volatility_6m",
-    "suburb_other_volatility_12m",
-    "suburb_other_delta_3m",
-    "suburb_other_delta_12m",
     "ratio_land_per_bed",
     "ratio_floor_per_bed",
     "ratio_car_per_bed",
     "ratio_bed_bath",
     "price_per_sqm_land",
     "price_per_sqm_floor",
-    "rel_price_vs_suburb_median",
-    "rel_street_effect",
-    "propertyAge",
+    "year",
     "asx200_close",
     "asx200_yoy",
     "cpi_index_dec",
@@ -172,7 +116,26 @@
     "cash_rate_avg",
     "cash_rate_eoy",
     "cash_rate_change_avg",
-    "cash_rate_change_eoy"
+    "cash_rate_change_eoy",
+    "suburb_price_median_current",
+    "street_price_median_current",
+    "rel_price_suburb",
+    "rel_price_street",
+    "propertyAge",
+    "current_price_median",
+    "current_price_mean",
+    "transaction_count",
+    "avg_land_size",
+    "avg_floor_size",
+    "price_future_6m",
+    "price_future_6m_delta",
+    "price_future_6m_diff",
+    "price_future_12m",
+    "price_future_12m_delta",
+    "price_future_12m_diff",
+    "price_future_12m_smooth",
+    "price_future_12m_smooth_delta",
+    "price_future_12m_smooth_diff"
   ],
   "categorical_columns": [
     "streetAddress",
@@ -189,6 +152,7 @@
     "sourceFile",
     "agencyBrand",
     "street",
+    "property_type_tag",
     "propertyAgeBand",
     "bed_bucket",
     "bath_bucket",
@@ -411,274 +375,212 @@
       "dropped_rows_path": "/mnt/g/dev/property_analyst/data/preprocess/dropped_rows.parquet"
     },
     "derivation": {
-      "street": {
-        "enabled": true,
-        "source": "streetAddress",
-        "output": "street",
-        "drop_unknown": false,
-        "config": {
-          "unknown_value": "Unknown"
+      "spec_version": 1,
+      "settings": {
+        "on_missing_source": "error",
+        "output_conflict": "error",
+        "default_fillna": null,
+        "datasets": {
+          "macro_au_annual": "data/macro/macro_au_annual.csv"
         }
       },
-      "month_index": {
-        "enabled": true,
-        "month_col": "saleYearMonth",
-        "output": "month_id",
-        "offset": 0
-      },
-      "month_cyclical": {
-        "enabled": true,
-        "month_col": "saleMonth",
-        "out_prefix": "saleMonth"
-      },
-      "suburb_time_aggregates": {
-        "enabled": true,
-        "suburb_col": "suburb",
-        "month_col": "saleYearMonth",
-        "price_col": "salePrice",
-        "windows": [
-          3,
-          6,
-          12
-        ],
-        "prefix": "suburb",
-        "type_col": "propertyType",
-        "type_map": {
-          "HOUSE": "house",
-          "TOWNHOUSE": "house"
-        },
-        "type_default": "other",
-        "type_tags": [
-          "house",
-          "other"
-        ]
-      },
-      "ratio_land_per_bed": {
-        "enabled": true,
-        "fn": "ratio",
-        "numerator": "landSizeM2",
-        "denominator": "bed",
-        "denominator_offset": 1,
-        "output": "ratio_land_per_bed",
-        "drop_na": true
-      },
-      "ratio_floor_per_bed": {
-        "enabled": true,
-        "fn": "ratio",
-        "numerator": "floorSizeM2",
-        "denominator": "bed",
-        "denominator_offset": 1,
-        "output": "ratio_floor_per_bed",
-        "drop_na": true
-      },
-      "ratio_car_per_bed": {
-        "enabled": true,
-        "fn": "ratio",
-        "numerator": "car",
-        "denominator": "bed",
-        "denominator_offset": 1,
-        "output": "ratio_car_per_bed",
-        "drop_na": true
-      },
-      "ratio_bed_bath": {
-        "enabled": true,
-        "fn": "ratio",
-        "numerator": "bed",
-        "denominator": "bath",
-        "denominator_offset": 1,
-        "output": "ratio_bed_bath",
-        "drop_na": true
-      },
-      "price_per_area_land": {
-        "enabled": true,
-        "fn": "price_per_area",
-        "price_col": "salePrice",
-        "area_col": "landSizeM2",
-        "output": "price_per_sqm_land",
-        "clip_min": 0.0,
-        "drop_na": true
-      },
-      "price_per_area_floor": {
-        "enabled": true,
-        "fn": "price_per_area",
-        "price_col": "salePrice",
-        "area_col": "floorSizeM2",
-        "output": "price_per_sqm_floor",
-        "clip_min": 0.0,
-        "drop_na": true
-      },
-      "macro_join": {
-        "enabled": true,
-        "path": "data/macro/macro_au_annual.csv",
-        "sale_year_col": "saleYear"
-      },
-      "relative_pricing": {
-        "enabled": true,
-        "price_col": "salePrice",
-        "suburb_col": "suburb",
-        "month_col": "saleYearMonth",
-        "suburb_median_col": "suburb_price_median_current",
-        "region_col": "region",
-        "street_col": "street",
-        "min_samples": 5,
-        "output_prefix": "rel"
-      },
-      "property_age": {
-        "enabled": true,
-        "year_built_col": "yearBuilt",
-        "sale_year_col": "saleYear",
-        "output": "propertyAge",
-        "min_age": 0
-      },
-      "age_bands": {
-        "enabled": true,
-        "age_col": "propertyAge",
-        "output": "propertyAgeBand",
-        "bands": [
-          5,
-          20
-        ]
-      },
-      "buckets": {
-        "bed": {
+      "steps": [
+        {
+          "id": "sale_date_parts",
+          "type": "simple",
           "enabled": true,
-          "source": "bed",
-          "bins": [
-            2,
-            3,
-            4
-          ],
-          "labels": [
-            "<=2",
-            "3",
-            "4",
-            "5+"
-          ],
-          "fill_value": "Unknown"
-        },
-        "bath": {
-          "enabled": true,
-          "source": "bath",
-          "bins": [
-            1,
-            2,
-            3
-          ],
-          "labels": [
-            "0-1",
-            "2",
-            "3",
-            "4+"
-          ],
-          "fill_value": "Unknown"
-        },
-        "land": {
-          "enabled": true,
-          "source": "landSizeM2",
-          "bins": [
-            400,
-            700
-          ],
-          "labels": [
-            "<=400",
-            "401-700",
-            "700+"
-          ],
-          "fill_value": "Unknown"
-        },
-        "floor": {
-          "enabled": true,
-          "source": "floorSizeM2",
-          "bins": [
-            150,
-            220
-          ],
-          "labels": [
-            "<=150",
-            "151-220",
-            "220+"
-          ],
-          "fill_value": "Unknown"
-        }
-      },
-      "grouping": {
-        "enabled": false,
-        "month_col": "saleYearMonth",
-        "keys": [
-          "suburb",
-          "propertyType",
-          "bed_bucket",
-          "land_bucket",
-          "floor_bucket"
-        ],
-        "min_rows": 12,
-        "min_months": 12
-      },
-      "aggregations": {
-        "enabled": true,
-        "metrics": [
-          {
-            "name": "current_price_median",
-            "source": "salePrice",
-            "agg": "median"
-          },
-          {
-            "name": "current_price_mean",
-            "source": "salePrice",
-            "agg": "mean"
-          },
-          {
-            "name": "transaction_count",
-            "source": "salePrice",
-            "agg": "count"
-          },
-          {
-            "name": "avg_land_size",
-            "source": "landSizeM2",
-            "agg": "mean"
-          },
-          {
-            "name": "avg_floor_size",
-            "source": "floorSizeM2",
-            "agg": "mean"
-          },
-          {
-            "name": "ratio_land_per_bed",
-            "source": "ratio_land_per_bed",
-            "agg": "mean"
-          },
-          {
-            "name": "ratio_floor_per_bed",
-            "source": "ratio_floor_per_bed",
-            "agg": "mean"
-          },
-          {
-            "name": "ratio_car_per_bed",
-            "source": "ratio_car_per_bed",
-            "agg": "mean"
-          },
-          {
-            "name": "ratio_bed_bath",
-            "source": "ratio_bed_bath",
-            "agg": "mean"
-          },
-          {
-            "name": "price_per_sqm_land",
-            "source": "price_per_sqm_land",
-            "agg": "median"
-          },
-          {
-            "name": "price_per_sqm_floor",
-            "source": "price_per_sqm_floor",
-            "agg": "median"
+          "method": "date_parts",
+          "config": {
+            "source": "saleDate",
+            "year_output": "saleYear",
+            "month_output": "saleMonth",
+            "year_month_output": "saleYearMonth"
           }
-        ],
-        "carry": {
+        },
+        {
+          "id": "street",
+          "type": "simple",
           "enabled": true,
-          "prefixes": [
-            "suburb_"
+          "source": "streetAddress",
+          "output": "street",
+          "method": "extract_street",
+          "config": {
+            "unknown_value": "Unknown"
+          }
+        },
+        {
+          "id": "month_index",
+          "type": "simple",
+          "enabled": true,
+          "source": "saleYearMonth",
+          "output": "month_id",
+          "method": "to_month_index",
+          "config": {
+            "offset": 0
+          }
+        },
+        {
+          "id": "month_cyclical",
+          "type": "simple",
+          "enabled": true,
+          "source": "saleMonth",
+          "output": [
+            "saleMonth_sin",
+            "saleMonth_cos"
           ],
-          "columns": [
+          "method": "cyclical_encode",
+          "config": {
+            "period": 12
+          }
+        },
+        {
+          "id": "map_property_type_to_tag",
+          "type": "simple",
+          "enabled": true,
+          "source": "propertyType",
+          "output": "property_type_tag",
+          "method": "map_values",
+          "config": {
+            "mapping": {
+              "HOUSE": "house",
+              "TOWNHOUSE": "house"
+            },
+            "default": "other"
+          }
+        },
+        {
+          "id": "suburb_time_agg_3m",
+          "type": "time_aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb",
+            "property_type_tag"
+          ],
+          "time_col": "saleYearMonth",
+          "target": "salePrice",
+          "window": {
+            "past": 3,
+            "future": 0,
+            "unit": "months"
+          },
+          "outputs": {
+            "median": "suburb_price_median_3m",
+            "count": "suburb_txn_count_3m"
+          }
+        },
+        {
+          "id": "suburb_time_agg_6m",
+          "type": "time_aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb",
+            "property_type_tag"
+          ],
+          "time_col": "saleYearMonth",
+          "target": "salePrice",
+          "window": {
+            "past": 6,
+            "future": 0,
+            "unit": "months"
+          },
+          "outputs": {
+            "median": "suburb_price_median_6m",
+            "count": "suburb_txn_count_6m"
+          }
+        },
+        {
+          "id": "suburb_time_agg_12m",
+          "type": "time_aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb",
+            "property_type_tag"
+          ],
+          "time_col": "saleYearMonth",
+          "target": "salePrice",
+          "window": {
+            "past": 12,
+            "future": 0,
+            "unit": "months"
+          },
+          "outputs": {
+            "median": "suburb_price_median_12m",
+            "count": "suburb_txn_count_12m"
+          }
+        },
+        {
+          "id": "ratio_land_per_bed",
+          "type": "simple",
+          "enabled": true,
+          "output": "ratio_land_per_bed",
+          "method": "expr",
+          "config": {
+            "expr": "landSizeM2 / nullif(bed + 1, 0)"
+          }
+        },
+        {
+          "id": "ratio_floor_per_bed",
+          "type": "simple",
+          "enabled": true,
+          "output": "ratio_floor_per_bed",
+          "method": "expr",
+          "config": {
+            "expr": "floorSizeM2 / nullif(bed + 1, 0)"
+          }
+        },
+        {
+          "id": "ratio_car_per_bed",
+          "type": "simple",
+          "enabled": true,
+          "output": "ratio_car_per_bed",
+          "method": "expr",
+          "config": {
+            "expr": "car / nullif(bed + 1, 0)"
+          }
+        },
+        {
+          "id": "ratio_bed_bath",
+          "type": "simple",
+          "enabled": true,
+          "output": "ratio_bed_bath",
+          "method": "expr",
+          "config": {
+            "expr": "bed / nullif(bath + 1, 0)"
+          }
+        },
+        {
+          "id": "price_per_area_land",
+          "type": "simple",
+          "enabled": true,
+          "output": "price_per_sqm_land",
+          "method": "expr",
+          "config": {
+            "expr": "clip(salePrice / nullif(landSizeM2, 0), 0, None)"
+          }
+        },
+        {
+          "id": "price_per_area_floor",
+          "type": "simple",
+          "enabled": true,
+          "output": "price_per_sqm_floor",
+          "method": "expr",
+          "config": {
+            "expr": "clip(salePrice / nullif(floorSizeM2, 0), 0, None)"
+          }
+        },
+        {
+          "id": "macro_join",
+          "type": "join",
+          "enabled": true,
+          "right": "macro_au_annual",
+          "how": "left",
+          "on": [
+            {
+              "left": "saleYear",
+              "right": "year"
+            }
+          ],
+          "select": [
             "asx200_close",
             "asx200_yoy",
             "cpi_index_dec",
@@ -690,57 +592,434 @@
             "cash_rate_change_avg",
             "cash_rate_change_eoy"
           ]
-        }
-      },
-      "future_targets": [
-        {
-          "name": "price_future_6m",
-          "source": "salePrice",
-          "agg": "median",
-          "horizon": 6,
-          "window": 1,
-          "min_periods": 6,
-          "drop_na": true,
-          "base_column": "current_price_median",
-          "derived": [
-            {
-              "type": "delta"
-            },
-            {
-              "type": "diff"
-            }
-          ]
         },
         {
-          "name": "price_future_12m",
-          "source": "salePrice",
-          "agg": "median",
-          "horizon": 12,
-          "window": 1,
-          "min_periods": 12,
-          "drop_na": true,
-          "base_column": "current_price_median",
-          "derived": [
-            {
-              "type": "delta"
-            },
-            {
-              "type": "diff"
-            }
+          "id": "suburb_price_current",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
           ],
-          "smooth": {
-            "window": 12,
-            "min_periods": 6,
-            "drop_na": true,
-            "base_column": "current_price_median",
-            "derived": [
-              {
-                "type": "delta"
-              },
-              {
-                "type": "diff"
-              }
+          "target": "salePrice",
+          "outputs": {
+            "median": "suburb_price_median_current"
+          }
+        },
+        {
+          "id": "region_price_current",
+          "type": "aggregate",
+          "enabled": false,
+          "group_by": [
+            "region"
+          ],
+          "target": "salePrice",
+          "outputs": {
+            "median": "region_price_median_current"
+          }
+        },
+        {
+          "id": "street_price_current",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb",
+            "street"
+          ],
+          "target": "salePrice",
+          "outputs": {
+            "median": "street_price_median_current"
+          },
+          "config": {
+            "min_count": 5
+          }
+        },
+        {
+          "id": "rel_price_suburb",
+          "type": "simple",
+          "enabled": true,
+          "output": "rel_price_suburb",
+          "method": "expr",
+          "config": {
+            "expr": "(salePrice - suburb_price_median_current) / nullif(suburb_price_median_current, 0)"
+          }
+        },
+        {
+          "id": "rel_price_region",
+          "type": "simple",
+          "enabled": false,
+          "output": "rel_price_region",
+          "method": "expr",
+          "config": {
+            "expr": "(salePrice - region_price_median_current) / nullif(region_price_median_current, 0)"
+          }
+        },
+        {
+          "id": "rel_price_street",
+          "type": "simple",
+          "enabled": true,
+          "output": "rel_price_street",
+          "method": "expr",
+          "config": {
+            "expr": "(salePrice - street_price_median_current) / nullif(street_price_median_current, 0)"
+          }
+        },
+        {
+          "id": "property_age",
+          "type": "simple",
+          "enabled": true,
+          "output": "propertyAge",
+          "method": "expr",
+          "config": {
+            "expr": "max(saleYear - yearBuilt, 0)"
+          }
+        },
+        {
+          "id": "age_bands",
+          "type": "bin",
+          "enabled": true,
+          "source": "propertyAge",
+          "output": "propertyAgeBand",
+          "method": "fixed",
+          "config": {
+            "edges": [
+              5,
+              20
+            ],
+            "labels": [
+              "0–5",
+              "6–20",
+              "21+"
             ]
+          }
+        },
+        {
+          "id": "bed_bucket",
+          "type": "bin",
+          "enabled": true,
+          "source": "bed",
+          "output": "bed_bucket",
+          "method": "fixed",
+          "config": {
+            "edges": [
+              2,
+              3,
+              4
+            ],
+            "labels": [
+              "<=2",
+              "3",
+              "4",
+              "5+"
+            ],
+            "fill_value": "Unknown"
+          }
+        },
+        {
+          "id": "bath_bucket",
+          "type": "bin",
+          "enabled": true,
+          "source": "bath",
+          "output": "bath_bucket",
+          "method": "fixed",
+          "config": {
+            "edges": [
+              1,
+              2,
+              3
+            ],
+            "labels": [
+              "0-1",
+              "2",
+              "3",
+              "4+"
+            ],
+            "fill_value": "Unknown"
+          }
+        },
+        {
+          "id": "land_bucket",
+          "type": "bin",
+          "enabled": true,
+          "source": "landSizeM2",
+          "output": "land_bucket",
+          "method": "fixed",
+          "config": {
+            "edges": [
+              400,
+              700
+            ],
+            "labels": [
+              "<=400",
+              "401-700",
+              "700+"
+            ],
+            "fill_value": "Unknown"
+          }
+        },
+        {
+          "id": "floor_bucket",
+          "type": "bin",
+          "enabled": true,
+          "source": "floorSizeM2",
+          "output": "floor_bucket",
+          "method": "fixed",
+          "config": {
+            "edges": [
+              150,
+              220
+            ],
+            "labels": [
+              "<=150",
+              "151-220",
+              "220+"
+            ],
+            "fill_value": "Unknown"
+          }
+        },
+        {
+          "id": "current_price_median",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "salePrice",
+          "outputs": {
+            "median": "current_price_median"
+          }
+        },
+        {
+          "id": "current_price_mean",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "salePrice",
+          "outputs": {
+            "mean": "current_price_mean"
+          }
+        },
+        {
+          "id": "transaction_count",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "salePrice",
+          "outputs": {
+            "count": "transaction_count"
+          }
+        },
+        {
+          "id": "avg_land_size",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "landSizeM2",
+          "outputs": {
+            "mean": "avg_land_size"
+          }
+        },
+        {
+          "id": "avg_floor_size",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "floorSizeM2",
+          "outputs": {
+            "mean": "avg_floor_size"
+          }
+        },
+        {
+          "id": "ratio_land_per_bed_mean",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "ratio_land_per_bed",
+          "outputs": {
+            "mean": "ratio_land_per_bed"
+          }
+        },
+        {
+          "id": "ratio_floor_per_bed_mean",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "ratio_floor_per_bed",
+          "outputs": {
+            "mean": "ratio_floor_per_bed"
+          }
+        },
+        {
+          "id": "ratio_car_per_bed_mean",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "ratio_car_per_bed",
+          "outputs": {
+            "mean": "ratio_car_per_bed"
+          }
+        },
+        {
+          "id": "ratio_bed_bath_mean",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "ratio_bed_bath",
+          "outputs": {
+            "mean": "ratio_bed_bath"
+          }
+        },
+        {
+          "id": "price_per_sqm_land_median",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "price_per_sqm_land",
+          "outputs": {
+            "median": "price_per_sqm_land"
+          }
+        },
+        {
+          "id": "price_per_sqm_floor_median",
+          "type": "aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "target": "price_per_sqm_floor",
+          "outputs": {
+            "median": "price_per_sqm_floor"
+          }
+        },
+        {
+          "id": "price_future_6m",
+          "type": "time_aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "time_col": "month_id",
+          "target": "salePrice",
+          "window": {
+            "past": 0,
+            "future": 6,
+            "unit": "months"
+          },
+          "outputs": {
+            "median": "price_future_6m"
+          }
+        },
+        {
+          "id": "price_future_6m_delta",
+          "type": "simple",
+          "enabled": true,
+          "output": "price_future_6m_delta",
+          "method": "expr",
+          "config": {
+            "expr": "(price_future_6m - current_price_median) / nullif(current_price_median, 0)"
+          }
+        },
+        {
+          "id": "price_future_6m_diff",
+          "type": "simple",
+          "enabled": true,
+          "output": "price_future_6m_diff",
+          "method": "expr",
+          "config": {
+            "expr": "price_future_6m - current_price_median"
+          }
+        },
+        {
+          "id": "price_future_12m",
+          "type": "time_aggregate",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "time_col": "month_id",
+          "target": "salePrice",
+          "window": {
+            "past": 0,
+            "future": 12,
+            "unit": "months"
+          },
+          "outputs": {
+            "median": "price_future_12m"
+          }
+        },
+        {
+          "id": "price_future_12m_delta",
+          "type": "simple",
+          "enabled": true,
+          "output": "price_future_12m_delta",
+          "method": "expr",
+          "config": {
+            "expr": "(price_future_12m - current_price_median) / nullif(current_price_median, 0)"
+          }
+        },
+        {
+          "id": "price_future_12m_diff",
+          "type": "simple",
+          "enabled": true,
+          "output": "price_future_12m_diff",
+          "method": "expr",
+          "config": {
+            "expr": "price_future_12m - current_price_median"
+          }
+        },
+        {
+          "id": "price_future_12m_smooth",
+          "type": "rolling",
+          "enabled": true,
+          "group_by": [
+            "suburb"
+          ],
+          "sort_by": "month_id",
+          "target": "price_future_12m",
+          "window": 12,
+          "outputs": {
+            "mean": "price_future_12m_smooth"
+          },
+          "config": {
+            "min_periods": 6,
+            "center": false
+          }
+        },
+        {
+          "id": "price_future_12m_smooth_delta",
+          "type": "simple",
+          "enabled": true,
+          "output": "price_future_12m_smooth_delta",
+          "method": "expr",
+          "config": {
+            "expr": "(price_future_12m_smooth - current_price_median) / nullif(current_price_median, 0)"
+          }
+        },
+        {
+          "id": "price_future_12m_smooth_diff",
+          "type": "simple",
+          "enabled": true,
+          "output": "price_future_12m_smooth_diff",
+          "method": "expr",
+          "config": {
+            "expr": "price_future_12m_smooth - current_price_median"
           }
         }
       ]

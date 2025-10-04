@@ -12,7 +12,11 @@ from property_adviser.core.app_logging import log
 from property_adviser.core.io import ensure_dir, save_parquet_or_csv
 from property_adviser.preprocess.config import PreprocessConfig
 from property_adviser.preprocess.preprocess_clean import clean_data
-from property_adviser.preprocess.preprocess_derive import derive_features, build_segments
+from property_adviser.preprocess.preprocess_derive import (
+    derive_features,
+    build_segments,
+    run_derivation_stage,
+)
 from property_adviser.core.config import load_config
 
 
@@ -86,10 +90,19 @@ def run_preprocessing(config: PreprocessConfig, *, write_outputs: bool = True) -
     log("preprocess.clean.complete", rows=int(cleaned.shape[0]), cols=int(cleaned.shape[1]))
 
     derivation_cfg = load_config(config.derive.config_path)
-    derived = derive_features(cleaned.copy(), derivation_cfg)
-    log("preprocess.derive.complete", rows=int(derived.shape[0]), cols=int(derived.shape[1]))
-
-    segments, segment_meta = build_segments(derived, derivation_cfg)
+    segment_meta: dict[str, Any] = {}
+    if "spec_version" in derivation_cfg:
+        derivation_result = run_derivation_stage(cleaned.copy(), derivation_cfg)
+        derived = derivation_result.frame
+        segments = derivation_result.segments
+        if derivation_result.artifacts:
+            segment_meta = derivation_result.artifacts.get("segments", {}) or {}
+        log("preprocess.derive.complete", rows=int(derived.shape[0]), cols=int(derived.shape[1]), spec="v1")
+    else:
+        derivation_result = None
+        derived = derive_features(cleaned.copy(), derivation_cfg)
+        log("preprocess.derive.complete", rows=int(derived.shape[0]), cols=int(derived.shape[1]))
+        segments, segment_meta = build_segments(derived, derivation_cfg)
     if segments is not None:
         log("preprocess.segments", rows=int(segments.shape[0]), cols=int(segments.shape[1]))
 

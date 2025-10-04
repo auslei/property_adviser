@@ -1,0 +1,249 @@
+# pp_derive.yml — Derivations configuration (updated)
+# NOTE: enable/disable any block with `enabled: true/false`
+
+street:
+  enabled: true
+  source: streetAddress
+  output: street
+  drop_unknown: false
+  config:
+    unknown_value: "Unknown"
+
+# 1) Temporal / Market Trend Features
+month_index:
+  enabled: true
+  month_col: saleYearMonth
+  output: month_id
+  offset: 0
+
+month_cyclical:
+  enabled: true
+  month_col: saleMonth
+  out_prefix: saleMonth
+
+suburb_time_aggregates:
+  enabled: true
+  suburb_col: suburb
+  month_col: saleYearMonth
+  price_col: salePrice
+  windows: [3, 6, 12]
+  prefix: suburb
+  type_col: propertyType
+  type_map:
+    HOUSE: house
+    TOWNHOUSE: house
+  type_default: other
+  type_tags: [house, other]
+
+# 2) Property Size & Density Ratios
+ratio_land_per_bed:
+  enabled: true
+  fn: ratio
+  numerator: landSizeM2
+  denominator: bed
+  denominator_offset: 1
+  output: ratio_land_per_bed
+  drop_na: true
+
+ratio_floor_per_bed:
+  enabled: true
+  fn: ratio
+  numerator: floorSizeM2
+  denominator: bed
+  denominator_offset: 1
+  output: ratio_floor_per_bed
+  drop_na: true
+
+ratio_car_per_bed:
+  enabled: true
+  fn: ratio
+  numerator: car
+  denominator: bed
+  denominator_offset: 1
+  output: ratio_car_per_bed
+  drop_na: true
+
+ratio_bed_bath:
+  enabled: true
+  fn: ratio
+  numerator: bed
+  denominator: bath
+  denominator_offset: 1
+  output: ratio_bed_bath
+  drop_na: true
+
+price_per_area_land:
+  enabled: true
+  fn: price_per_area
+  price_col: salePrice
+  area_col: landSizeM2
+  output: price_per_sqm_land
+  clip_min: 0.0
+  drop_na: true
+
+price_per_area_floor:
+  enabled: true
+  fn: price_per_area
+  price_col: salePrice
+  area_col: floorSizeM2
+  output: price_per_sqm_floor
+  clip_min: 0.0
+  drop_na: true
+
+# 3b) Macroeconomic enrichment
+macro_join:
+  enabled: true
+  path: data/macro/macro_au_annual.csv
+  sale_year_col: saleYear
+
+# 3) Relative Pricing
+relative_pricing:
+  enabled: true
+  price_col: salePrice
+  suburb_col: suburb
+  month_col: saleYearMonth
+  suburb_median_col: suburb_price_median_current
+  region_col: region                # optional; comment out if not available
+  street_col: street                # requires 'street' step above
+  min_samples: 5
+  output_prefix: rel
+
+# 4) Age & Vintage
+property_age:
+  enabled: true
+  year_built_col: yearBuilt
+  sale_year_col: saleYear
+  output: propertyAge
+  min_age: 0
+
+age_bands:
+  enabled: true
+  age_col: propertyAge
+  output: propertyAgeBand
+  bands: [5, 20]   # -> "0–5", "6–20", "21+"
+
+# 5) Configurable Buckets for Segmenting Properties
+buckets:
+  bed:
+    enabled: true
+    source: bed
+    bins: [2, 3, 4]
+    labels: ["<=2", "3", "4", "5+"]
+    fill_value: "Unknown"
+  bath:
+    enabled: true
+    source: bath
+    bins: [1, 2, 3]
+    labels: ["0-1", "2", "3", "4+"]
+    fill_value: "Unknown"
+  land:
+    enabled: true
+    source: landSizeM2
+    bins: [400, 700]
+    labels: ["<=400", "401-700", "700+"]
+    fill_value: "Unknown"
+  floor:
+    enabled: true
+    source: floorSizeM2
+    bins: [150, 220]
+    labels: ["<=150", "151-220", "220+"]
+    fill_value: "Unknown"
+
+# 6) Segment Grouping (used for future target generation / aggregation)
+grouping:
+  enabled: false
+  month_col: saleYearMonth
+  keys:
+    - suburb
+    - propertyType
+    - bed_bucket
+    - land_bucket
+    - floor_bucket
+  min_rows: 12          # minimum records per group to retain
+  min_months: 12        # minimum distinct months per group
+
+# 7) Aggregations for Segment-Level Features
+aggregations:
+  enabled: true
+  metrics:
+    - name: current_price_median
+      source: salePrice
+      agg: median
+    - name: current_price_mean
+      source: salePrice
+      agg: mean
+    - name: transaction_count
+      source: salePrice
+      agg: count
+    - name: avg_land_size
+      source: landSizeM2
+      agg: mean
+    - name: avg_floor_size
+      source: floorSizeM2
+      agg: mean
+    - name: ratio_land_per_bed
+      source: ratio_land_per_bed
+      agg: mean
+    - name: ratio_floor_per_bed
+      source: ratio_floor_per_bed
+      agg: mean
+    - name: ratio_car_per_bed
+      source: ratio_car_per_bed
+      agg: mean
+    - name: ratio_bed_bath
+      source: ratio_bed_bath
+      agg: mean
+    - name: price_per_sqm_land
+      source: price_per_sqm_land
+      agg: median
+    - name: price_per_sqm_floor
+      source: price_per_sqm_floor
+      agg: median
+  carry:
+    enabled: true
+    prefixes:
+      - suburb_
+    columns:
+      - asx200_close
+      - asx200_yoy
+      - cpi_index_dec
+      - cpi_yoy_dec
+      - cpi_index_avg
+      - cpi_yoy_avg
+      - cash_rate_avg
+      - cash_rate_eoy
+      - cash_rate_change_avg
+      - cash_rate_change_eoy
+
+# 8) Future Targets (shifted horizons)
+future_targets:
+  - name: price_future_6m
+    source: salePrice
+    agg: median
+    horizon: 6
+    window: 1
+    min_periods: 6
+    drop_na: true
+    base_column: current_price_median
+    derived:
+      - type: delta
+      - type: diff
+  - name: price_future_12m
+    source: salePrice
+    agg: median
+    horizon: 12
+    window: 1
+    min_periods: 12
+    drop_na: true
+    base_column: current_price_median
+    derived:
+      - type: delta
+      - type: diff
+    smooth:
+      window: 12
+      min_periods: 6
+      drop_na: true
+      base_column: current_price_median
+      derived:
+        - type: delta
+        - type: diff
