@@ -102,6 +102,7 @@ def _infer_feature_sets(X: pd.DataFrame) -> Tuple[List[str], List[str]]:
 def _timestamp() -> str:
     from datetime import datetime
 
+    # Keep a timestamp for logging/metadata, but not for filenames
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
@@ -474,19 +475,17 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         "log_target": config.log_target,
     }
 
-    model_path = artifacts_dir / f"best_model_{best_model_name}_{timestamp}.joblib"
-    joblib.dump(bundle, model_path)
+    # Write only canonical filenames within the daily directory; overwrite on reruns
+    canonical_model_path = artifacts_dir / "best_model.joblib"
+    joblib.dump(bundle, canonical_model_path)
     log(
         "train.save_model",
-        path=str(model_path),
+        path=str(canonical_model_path),
         model=best_model_name,
         r2=best_model_score,
         target=config.target,
         config_name=config.name,
     )
-
-    canonical_model_path = artifacts_dir / "best_model.joblib"
-    joblib.dump(bundle, canonical_model_path)
 
     best_metrics = next((r for r in results if r["model"] == best_model_name), None)
     summary = {
@@ -496,7 +495,7 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         "validation_month": validation_month,
         "metrics": best_metrics or {},
         "best_params": best_params,
-        "timestamped_model_path": str(model_path),
+        "timestamped_model_path": str(canonical_model_path),
         "models_tried": [r["model"] for r in results],
         "log_target": config.log_target,
     }
@@ -511,7 +510,8 @@ def run_training(config: TrainingConfig) -> TrainingResult:
     )
 
     scores_df = pd.DataFrame(results).sort_values("val_r2", ascending=False)
-    scores_path = artifacts_dir / f"model_scores_{timestamp}.csv"
+    # Stable name to overwrite each run within the day
+    scores_path = artifacts_dir / "model_scores.csv"
     scores_df.to_csv(scores_path, index=False)
     log(
         "train.save_scores",
@@ -571,7 +571,7 @@ def run_training(config: TrainingConfig) -> TrainingResult:
         forecast_window=config.forecast_window,
         timestamp=timestamp,
         best_model=best_model_name,
-        best_model_path=model_path,
+        best_model_path=canonical_model_path,
         canonical_model_path=canonical_model_path,
         summary_path=summary_path,
         scores_path=scores_path,

@@ -39,13 +39,30 @@ def _resolve_path(value: str | Path) -> Path:
 
 
 def _load_report(report_path: Optional[str | Path]) -> tuple[Path, dict]:
+    """Locate and load a training report.
+
+    If a path is provided, use it. Otherwise, search for the most recent report in:
+    - Daily directories: models/*/training_report.json
+    - Legacy root files: models/training_report_*.json
+    The most recent is chosen by file modification time.
+    """
     if report_path:
         resolved = _resolve_path(report_path)
     else:
-        reports = sorted(MODELS_DIR.glob("training_report_*.json"))
-        if not reports:
+        candidates = []
+        # New layout: models/<YYYYMMDD>/training_report.json
+        candidates.extend(MODELS_DIR.glob("*/training_report.json"))
+        # Back-compat: root-level timestamped reports
+        candidates.extend(MODELS_DIR.glob("training_report_*.json"))
+        # As a last resort, scan deeper (e.g., nested envs)
+        if not candidates:
+            candidates = list(MODELS_DIR.rglob("training_report.json"))
+        if not candidates:
             raise PromotionError("No training report found under models/.")
-        resolved = reports[-1]
+        try:
+            resolved = max(candidates, key=lambda p: p.stat().st_mtime)
+        except Exception:
+            resolved = sorted(candidates)[-1]
     payload = read_json(resolved)
     if not isinstance(payload, dict):
         raise PromotionError(f"Training report at {resolved} is not a JSON object.")

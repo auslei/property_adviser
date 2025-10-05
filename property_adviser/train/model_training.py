@@ -99,10 +99,11 @@ def train_timeseries_model(
 
         report_path = None
         if results:
+            # Write report into the daily models directory with a stable filename
             report_dir = Path(results[0].canonical_model_path).parents[1]
             report_dir.mkdir(parents=True, exist_ok=True)
             report_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            report_path = report_dir / f"training_report_{report_timestamp}.json"
+            report_path = report_dir / "training_report.json"
             payload = {
                 "generated_at": report_timestamp,
                 "targets": entries,

@@ -6,7 +6,7 @@
 - Reuse shared utilities from `property_adviser.core` (config loading, IO, logging) to maintain consistency across modules.
 
 ## Design Commitments
-- **Clear interface**: Inputs consist of the derived dataset and `config/features.yml`; outputs are written to `data/training/` using predictable filenames.
+- **Clear interface**: Inputs consist of the derived dataset and `config/features.yml`; outputs are written to `data/features/` using predictable filenames (overwriting existing files).
 - **High cohesion**: Scoring, guardrails, and selection logic live inside this package. When functionality becomes broadly useful (e.g., correlation helpers), promote it to `core`.
 - **Low coupling**: Training and apps consume the exported files or returned dataclasses without depending on implementation details.
 - **Reusability**: Manual overrides and elimination logic expose parameters rather than branching on caller-specific behaviour.
@@ -33,9 +33,9 @@ property_adviser/feature/
 - Manual overrides (`include`, `exclude`, `use_top_k`, `top_k`) always take precedence.
 - Configured `include_columns` are prepended before manual CLI overrides so critical columns survive thresholding and redundancy pruning.
 - Optional RFECV elimination (configured via `elimination`): supports `max_features` (limit columns passed to RFE), `sample_rows` (row sampling for speed), and logs preprocessing + fit durations alongside summary scores.
-- Multi-target runs: define `targets` in `config/features.yml` to generate per-horizon outputs (each target writes to `base_output_dir/<target>/`).
+- Multi-target runs: define `targets` in `config/features.yml` to generate per-horizon outputs (each target writes to `data/features/<target>/`).
 
-## Outputs (`data/training/`)
+## Outputs (`data/features/`)
 - `feature_scores.parquet` (or `.csv`): full metrics, selection flags, override reasons, and elimination metadata.
 - `X.<ext>` / `y.<ext>` / `training.<ext>`: feature matrix, target vector, combined dataset (format controlled by `dataset_format`).
 - `selected_features.txt`: newline-separated list of selected predictors.

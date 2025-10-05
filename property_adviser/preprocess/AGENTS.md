@@ -99,3 +99,7 @@ uv run pa-preprocess --config config/preprocessing.yml --verbose
 1. Keep configuration-driven behaviour; new toggles belong in YAML with documented defaults.
 2. Share reusable helpers through `property_adviser.core` to avoid duplication across modules.
 3. Add lightweight unit coverage for complex derivations and document any breaking schema changes here.
+
+### TODO
+- Re-evaluate enabling the `region_price_current` / `rel_price_region` steps once a reliable `region` column is available upstream.
+- Consider wrapping the legacy relative-pricing helper as a first-class derive step to simplify the YAML expressions.

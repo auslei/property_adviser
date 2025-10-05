@@ -52,7 +52,7 @@ targets:
   - name: price_future_6m
     target: price_future_6m_delta
     input:
-      path: data/training/price_future_6m_delta
+      path: data/features/price_future_6m_delta
       X: X.parquet
       y: y.parquet
       feature_scores: feature_scores.parquet
@@ -63,7 +63,7 @@ targets:
   - name: price_future_12m
     target: price_future_12m_smooth_delta
     input:
-      path: data/training/price_future_12m_smooth_delta
+      path: data/features/price_future_12m_smooth_delta
       X: X.parquet
       y: y.parquet
       feature_scores: feature_scores.parquet

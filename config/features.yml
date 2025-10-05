@@ -1,5 +1,5 @@
 input_file: data/preprocess/segments.parquet
-base_output_dir: data/training
+base_output_dir: data/features
 exclude_columns:
   - observingYearMonth
   - street

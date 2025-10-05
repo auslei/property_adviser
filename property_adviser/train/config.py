@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
@@ -86,7 +87,8 @@ def _build_training_config(
     append_name: bool,
 ) -> TrainingConfig:
     input_cfg = raw.get("input", {})
-    base_dir = _resolve_path(input_cfg.get("path", "data/training"), project_root=project_root, config_dir=config_dir)
+    # Feature selection artifacts now default under data/features
+    base_dir = _resolve_path(input_cfg.get("path", "data/features"), project_root=project_root, config_dir=config_dir)
     base_dir = base_dir if base_dir.is_absolute() else base_dir.resolve()
 
     def resolve_under_base(value: Optional[Any]) -> Optional[Path]:
@@ -105,6 +107,9 @@ def _build_training_config(
 
     model_path_cfg = raw.get("model_path", {})
     artifacts_dir = _resolve_path(model_path_cfg.get("base", "models"), project_root=project_root, config_dir=config_dir)
+    # Add a daily bucket (YYYYMMDD) so same-day runs overwrite within the day
+    day_dir = datetime.now().strftime("%Y%m%d")
+    artifacts_dir = artifacts_dir / day_dir
     append_flag = model_path_cfg.get("append_target", append_name)
     subdir = model_path_cfg.get("subdir")
     if append_flag:

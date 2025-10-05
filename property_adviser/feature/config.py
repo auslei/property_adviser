@@ -91,7 +91,8 @@ class FeatureSelectionConfig:
         if "input_file" not in mapping:
             raise KeyError("Feature selection config requires 'input_file'.")
         input_file = resolve(mapping["input_file"])  # type: ignore[index]
-        output_dir = resolve(mapping.get("output_dir", "data/training"))
+        # Default feature outputs now live under data/features
+        output_dir = resolve(mapping.get("output_dir", "data/features"))
         target = mapping.get("target")
         if not target:
             raise KeyError("Feature selection config requires 'target'.")
@@ -191,7 +192,8 @@ def load_feature_selection_config(path: Path) -> List[FeatureSelectionConfig]:
     if not targets_cfg:
         return [FeatureSelectionConfig.from_mapping(raw, base_path=base, config_dir=cfg_dir)]
 
-    base_output_dir = raw.get("base_output_dir") or raw.get("output_dir", "data/training")
+    # Default base output directory for features is data/features
+    base_output_dir = raw.get("base_output_dir") or raw.get("output_dir", "data/features")
     configs: List[FeatureSelectionConfig] = []
 
     for target_cfg in targets_cfg:

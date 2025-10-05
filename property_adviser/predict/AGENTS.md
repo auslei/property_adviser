@@ -16,9 +16,9 @@
 - `feature_store.py`: provides cached access to derived datasets for suburb/street lookups used by apps.
 
 ## Required Artefacts
-- `models/best_model.joblib` (timestamped version stored alongside)
-- `data/training/feature_metadata.json`
-- Latest `models/model_scores_*.csv` for RMSE-driven confidence intervals
+- `models/best_model.joblib` (or a specific day's `models/<YYYYMMDD>/<target>/best_model.joblib`)
+- `data/training/feature_metadata.json` (promoted copy) or per-target `data/features/<target>/feature_metadata.json`
+- Latest `models/<YYYYMMDD>/<target>/model_scores.csv` for RMSE-driven confidence intervals
 
 ## Public APIs
 ```python

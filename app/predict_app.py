@@ -20,12 +20,14 @@ from property_adviser.predict.feature_store import (
     feature_store_path,
     list_streets,
     list_suburbs,
+    list_property_types,
     latest_sale_year_month,
 )
 from property_adviser.predict.model_prediction import (
     predict_property_price,
     predict_with_confidence_interval,
     load_trained_model,
+    _prepare_prediction_data,
 )
 
 
@@ -202,6 +204,29 @@ def main() -> None:
         f"Active model: {selected_model} → {target_name} ({forecast_window}). Baseline month: {observation_label}."
     )
 
+    with st.expander("Debug: model inputs", expanded=False):
+        st.write("Model expects these columns (in order):")
+        cols = (metadata.get("feature_metadata") or {}).get("model_input_columns") or []
+        st.code("\n".join(map(str, cols)) or "(none)")
+        if st.button("Show prepared features for current form", key="show_prepared"):
+            try:
+                props = [{
+                    "yearmonth": observation_yearmonth,
+                    "bed": 3,
+                    "bath": 2,
+                    "car": 1,
+                    "propertyType": "House",
+                    "street": streets[0] if streets else "",
+                    "suburb": suburbs[0] if suburbs else "",
+                    "landSize": 450.0,
+                    "floorSize": 180.0,
+                    "yearBuild": 1998,
+                }]
+                prepared = _prepare_prediction_data(props, metadata)
+                st.dataframe(prepared)
+            except Exception as exc:  # pragma: no cover
+                st.warning(f"Failed to build prepared features: {exc}")
+
     suburb = None
     if suburbs:
         suburb = st.selectbox(_label("Suburb", "suburb"), suburbs, index=0)
@@ -242,9 +267,12 @@ def main() -> None:
             step=1,
         )
 
+    property_types = list_property_types()
+    if not property_types:
+        property_types = ["House", "Unit", "Apartment"]
     property_type = st.selectbox(
         _label("Property Type", "propertyType"),
-        ["House", "Unit", "Apartment", "Townhouse", "Other"],
+        property_types,
         index=0,
     )
 

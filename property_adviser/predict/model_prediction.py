@@ -6,8 +6,12 @@ import json
 import numpy as np
 import pandas as pd
 
+from functools import lru_cache
+
 from property_adviser.core.artifacts import load_model_artifacts
 from property_adviser.core.paths import MODELS_DIR
+from property_adviser.config import PREPROCESS_CONFIG_PATH
+from property_adviser.core.config import load_config
 from property_adviser.predict.feature_store import (
     fetch_reference_features,
     list_streets,
@@ -97,6 +101,40 @@ def _predict_single(
     actual, raw_value, base_value = _convert_prediction(raw_value, input_df.iloc[0], metadata)
     return actual, raw_value, base_value, model, metadata
 
+@lru_cache(maxsize=1)
+def _load_derive_buckets_and_mappings() -> dict:
+    """Load bucket edges/labels and simple mappings from derive config, if available."""
+    try:
+        pre_cfg = load_config(PREPROCESS_CONFIG_PATH)
+        derive_path = pre_cfg.get("derivation", {}).get("config_path")
+        if not derive_path:
+            return {}
+        derive_cfg = load_config(derive_path)
+        steps = derive_cfg.get("steps", []) or []
+        info: dict = {"buckets": {}, "mappings": {}}
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            stype = str(step.get("type") or "")
+            if stype == "bin":
+                output = step.get("output")
+                config = step.get("config") or {}
+                edges = config.get("edges") or config.get("bins")
+                labels = config.get("labels")
+                if output and edges:
+                    info["buckets"][str(output)] = {"edges": list(edges), "labels": list(labels) if labels else None}
+            elif stype == "simple" and str(step.get("method") or "").lower() == "map_values":
+                output = step.get("output")
+                config = step.get("config") or {}
+                mapping = config.get("mapping") or {}
+                default = config.get("default")
+                if output and mapping:
+                    info["mappings"][str(output)] = {"mapping": {str(k).upper(): v for k, v in mapping.items()}, "default": default}
+        return info
+    except Exception:
+        return {}
+
+
 def _prepare_prediction_data(
     properties: List[Dict[str, Any]], metadata: Dict[str, Any]
 ) -> pd.DataFrame:
@@ -171,6 +209,51 @@ def _prepare_prediction_data(
         df["landSizeM2"] = pd.to_numeric(df["landSizeM2"], errors="coerce")
     if "floorSizeM2" in df.columns:
         df["floorSizeM2"] = pd.to_numeric(df["floorSizeM2"], errors="coerce")
+
+    # Derive selected engineered features from inputs when required
+    derive_info = _load_derive_buckets_and_mappings()
+    if "property_type_tag" in model_columns:
+        mapping_info = derive_info.get("mappings", {}).get("property_type_tag")
+        if mapping_info:
+            mapping = mapping_info.get("mapping", {})
+            default = mapping_info.get("default", "other")
+            df["property_type_tag"] = df.get("propertyType", "").astype(str).str.upper().map(mapping).fillna(default)
+        else:
+            df["property_type_tag"] = df.get("propertyType", "").astype(str).str.upper().map({"HOUSE": "house", "TOWNHOUSE": "house"}).fillna("other")
+
+    # Buckets computed from inputs if present in model columns
+    def _apply_bucket(source_col: str, output_col: str) -> None:
+        if output_col not in model_columns:
+            return
+        if source_col not in df.columns:
+            return
+        cfg = derive_info.get("buckets", {}).get(output_col)
+        values = pd.to_numeric(df[source_col], errors="coerce")
+        if cfg and cfg.get("edges"):
+            edges = [float(x) for x in cfg["edges"]]
+            labels = cfg.get("labels")
+            bins = [-np.inf] + edges + [np.inf]
+            cats = pd.cut(values, bins=bins, labels=labels if labels and len(labels) == len(bins) - 1 else None)
+            df[output_col] = cats.astype(str).replace({"nan": np.nan})
+        else:
+            # Fallback simple buckets if derive config unavailable
+            if output_col == "bed_bucket":
+                edges = [2, 3, 4]
+            elif output_col == "bath_bucket":
+                edges = [1, 2, 3]
+            elif output_col == "land_bucket":
+                edges = [400, 700]
+            elif output_col == "floor_bucket":
+                edges = [150, 220]
+            else:
+                edges = []
+            bins = [-np.inf] + edges + [np.inf] if edges else [-np.inf, np.inf]
+            df[output_col] = pd.cut(values, bins=bins).astype(str).replace({"nan": np.nan})
+
+    _apply_bucket("bed", "bed_bucket")
+    _apply_bucket("bath", "bath_bucket")
+    _apply_bucket("landSizeM2", "land_bucket")
+    _apply_bucket("floorSizeM2", "floor_bucket")
 
     # Build the model-ready frame
     prepared = pd.DataFrame(index=df.index, columns=model_columns)
@@ -337,6 +420,9 @@ def predict_with_confidence_interval(
 
     if rmse == 0.0:
         score_candidates = []
+        # New daily layout
+        score_candidates.extend(MODELS_DIR.glob("*/*/model_scores.csv"))
+        # Legacy wildcard under roots
         for directory in (MODELS_DIR / "model_final", MODELS_DIR):
             if directory.exists():
                 score_candidates.extend(directory.glob("model_scores_*.csv"))

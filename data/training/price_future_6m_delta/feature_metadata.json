@@ -13,7 +13,7 @@
   ],
   "selected_model": "RandomForestRegressor",
   "feature_metadata": {
-    "timestamp": "20251003_195932",
+    "timestamp": "20251005_174943",
     "month_column": "saleYearMonth",
     "raw_feature_columns": [
       "asx200_close",

@@ -9,7 +9,11 @@ from property_adviser.train.promotion import PromotionError, promote_models
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Promote trained models into the final bundle directory")
-    parser.add_argument("--report", type=str, help="Path to a training_report_*.json file")
+    parser.add_argument(
+        "--report",
+        type=str,
+        help="Path to a training report. If omitted, the latest is auto-discovered under models/*/training_report.json or legacy models/training_report_*.json",
+    )
     parser.add_argument(
         "--target",
         action="append",

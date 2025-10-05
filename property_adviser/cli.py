@@ -7,6 +7,7 @@ from typing import List, Tuple
 
 from property_adviser.core.app_logging import log, log_exc, setup_logging
 from property_adviser.core.config import load_config
+from property_adviser.feature.config import load_feature_selection_config
 from property_adviser.feature.cli import run_feature_selection
 from property_adviser.preprocess import load_preprocess_config, run_preprocessing
 from property_adviser.train.model_training import train_timeseries_model
@@ -38,13 +39,20 @@ def run_full_pipeline(
         raise
 
     try:
-        feat_cfg = load_config(feature_config)
-        fs_result = run_feature_selection(feat_cfg, write_outputs=True)
-        stages.append(("feature_selection", fs_result.scores_path))
+        # Support multi-target feature selection configs
+        fs_configs = load_feature_selection_config(feature_config)
+        last_scores_path: Path | None = None
+        total_selected = 0
+        for cfg in fs_configs:
+            fs_result = run_feature_selection(cfg, write_outputs=True)
+            last_scores_path = fs_result.scores_path or last_scores_path
+            total_selected += len(fs_result.selected_columns)
+        stages.append(("feature_selection", last_scores_path))
         log(
             "pipeline.feature_selection_complete",
-            scores=str(fs_result.scores_path),
-            selected=len(fs_result.selected_columns),
+            scores=str(last_scores_path) if last_scores_path else None,
+            targets=len(fs_configs),
+            total_selected=total_selected,
         )
     except Exception as exc:  # pragma: no cover - we want to bubble up
         log_exc("pipeline.feature_selection_failed", exc)

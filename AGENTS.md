@@ -22,14 +22,14 @@
 
 2. **Feature Selection (`property_adviser/feature`)**
    - Typed config loader + pipeline record elapsed timings, normalise scores, and expose consistent guardrail logging.
-   - Supports correlation threshold or top-k selection, optional RFECV pruning with row/feature caps, and emits `feature_scores` plus X/y artefacts per target (`base_output_dir/<target>/`).
+   - Supports correlation threshold or top-k selection, optional RFECV pruning with row/feature caps, and emits `feature_scores` plus X/y artefacts per target (`data/features/<target>/`). Existing files are overwritten.
    - CLI iterates through all targets in `config/features.yml`: `uv run pa-feature --config config/features.yml --scores-file feature_scores.parquet`.
    - Implementation notes, elimination tuning, and API usage: `property_adviser/feature/AGENTS.md`.
 
 3. **Model Training (`property_adviser/train`)**
    - Typed configs (`load_training_config`) feed `run_training`, which logs per-stage timings and produces `TrainingResult` objects.
    - Performs month-based train/validation split, applies manual feature overrides, and supports shared preprocessing pipelines per target.
-   - Persists timestamped bundles under `models/<target>/`, target-specific score summaries/metadata, and emits a consolidated `training_report_*.json` across targets.
+   - Persists bundles under `models/<YYYYMMDD>/<target>/` with stable filenames (`best_model.joblib`, `best_model.json`, `model_scores.csv`) so same-day reruns overwrite in place. Emits a daily `training_report.json` under `models/<YYYYMMDD>/`.
    - Detailed workflow and extension tips in `property_adviser/train/AGENTS.md`.
 
 4. **Prediction (`property_adviser/predict`)**

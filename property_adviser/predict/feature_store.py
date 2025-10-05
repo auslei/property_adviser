@@ -146,6 +146,20 @@ def list_suburbs() -> List[str]:
     return sorted(suburbs.tolist())
 
 
+def list_property_types() -> List[str]:
+    """Return the list of cleaned property types present in the derived dataset."""
+    df = _load_dataframe()
+    if "propertyType" not in df.columns:
+        return []
+    types = (
+        df["propertyType"].dropna().astype(str).map(str.strip).loc[lambda s: s.str.len() > 0]
+    )
+    # Keep canonical labels as-is (cleaning has already normalised them)
+    # Remove explicit Unknown if present
+    types = types[types.str.lower() != "unknown"].unique()
+    return sorted(types.tolist())
+
+
 def fetch_reference_features(
     suburb: str,
     sale_year_month: int,

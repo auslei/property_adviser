@@ -6,7 +6,7 @@
 - Share preprocessing pipelines, logging, and IO helpers via `property_adviser.core` to ensure uniform behaviour across modules.
 
 ## Design Commitments
-- **Clear interface**: Inputs are the feature matrix (`X`), target (`y`), and optional feature scores referenced via `config/model.yml`; outputs are timestamped model bundles and score summaries under `models/` and `data/training/`.
+- **Clear interface**: Inputs are the feature matrix (`X`), target (`y`), and optional feature scores referenced via `config/model.yml`; outputs are written under daily directories in `models/<YYYYMMDD>/<target>/` with stable filenames and score summaries. Feature metadata is saved alongside inputs.
 - **High cohesion**: Model selection, evaluation, and persistence live entirely within this package. External callers interact only through documented functions.
 - **Low coupling**: Downstream prediction loads persisted artefacts without importing training internals. Upstream stages influence behaviour through configs rather than code paths.
 - **Reusability**: Shared preprocessors, imputation defaults, and logging frameworks are built once and reused via `core`.
@@ -37,16 +37,16 @@ Keep configuration declarative; extend or override behaviour via YAML rather tha
 3. Choose the validation month (requested or latest), sort chronologically, and perform a month-based split, dropping the month column from model inputs.
 4. Build a single preprocessing pipeline (numeric: median + scaler, categorical: mode + one-hot) reused across every estimator.
 5. For each enabled model (Linear/Elastic families, tree ensembles, SARIMAX, etc.), run `GridSearchCV` with a `TimeSeriesSplit` (default up to 5 folds based on sample count, R² scoring) inside a timed block; validation metrics and CV scores are logged per candidate and per target.
-6. Persist the winning model bundle, score summaries, and feature metadata (including imputation defaults) with timestamped filenames under the target’s artefact directory.
+6. Persist the winning model bundle, score summaries, and feature metadata (including imputation defaults) under the day’s target directory using stable filenames (overwriting within the same day).
 7. Promote deployment candidates via `promotion.py`/`pa-promote`, copying the active bundle into `models/model_final/` and refreshing `data/training/feature_metadata.json`.
 8. Emit `train.complete` with total runtime, best model, and validation month; return a `TrainingResult` dataclass. `train_timeseries_model` aggregates these results and emits a holistic JSON report.
 
 ## Outputs
-- `models/<target>/best_model_<estimator>_<timestamp>.joblib`
-- `models/<target>/best_model.joblib` and `models/<target>/best_model.json`
-- `models/<target>/model_scores_<timestamp>.csv`
-- `data/training/<target>/feature_metadata.json`
-- `models/training_report_<timestamp>.json` – consolidated summary across all targets.
+- `models/<YYYYMMDD>/<target>/best_model.joblib`
+- `models/<YYYYMMDD>/<target>/best_model.json`
+- `models/<YYYYMMDD>/<target>/model_scores.csv`
+- `data/features/<target>/feature_metadata.json`
+- `models/<YYYYMMDD>/training_report.json` – consolidated summary across all targets for the day.
 
 All writes use `core.io.ensure_dir` + `joblib.dump`/`json.dump` wrappers for consistency.
 
@@ -80,14 +80,14 @@ for cfg in configs:
 
 ## Best-Model Selection Workflow
 - `pa-train` now prints the overall winner after each run (`Best Overall → …`) using the highest validation R² across all targets and estimators.
-- Each training report (`models/training_report_<timestamp>.json`) includes a `best_overall` object with the same information (target name/column, model, validation metrics, bundle paths) alongside the per-target entries.
+- Each training report (`models/<YYYYMMDD>/training_report.json`) includes a `best_overall` object with the same information (target name/column, model, validation metrics, bundle paths) alongside the per-target entries.
 - To re-query the latest result programmatically:
   ```bash
   python3 - <<'PY'
   import json
   from pathlib import Path
 
-  latest = sorted(Path('models').glob('training_report_*.json'))[-1]
+  latest = sorted(Path('models').glob('*/training_report.json'))[-1]
   payload = json.loads(latest.read_text())
   print(json.dumps({
       'latest_report': str(latest),
@@ -95,4 +95,4 @@ for cfg in configs:
   }, indent=2))
   PY
   ```
-- Canonical bundles live at `models/<target>/best_model.joblib`; `best_model.json` mirrors the metrics saved into the training report.
+- Canonical bundles live at `models/<YYYYMMDD>/<target>/best_model.joblib`; `best_model.json` mirrors the metrics saved into the training report.

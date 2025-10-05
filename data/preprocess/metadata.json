@@ -163,21 +163,21 @@
   "config": {
     "preprocess": {
       "clean": {
-        "config_path": "/mnt/g/dev/property_analyst/config/pp_clean.yml",
-        "output_path": "/mnt/g/dev/property_analyst/data/preprocess/cleaned.parquet",
-        "dropped_rows_path": "/mnt/g/dev/property_analyst/data/preprocess/dropped_rows.parquet"
+        "config_path": "config/pp_clean.yml",
+        "output_path": "data/preprocess/cleaned.parquet",
+        "dropped_rows_path": "data/preprocess/dropped_rows.parquet"
       },
       "derivation": {
-        "config_path": "/mnt/g/dev/property_analyst/config/pp_derive.yml",
-        "output_path": "/mnt/g/dev/property_analyst/data/preprocess/derived.parquet",
-        "metadata_path": "/mnt/g/dev/property_analyst/data/preprocess/metadata.json",
-        "segment_output_path": "/mnt/g/dev/property_analyst/data/preprocess/segments.parquet",
-        "detailed_output_path": "/mnt/g/dev/property_analyst/data/preprocess/derived_detailed.parquet"
+        "config_path": "config/pp_derive.yml",
+        "output_path": "data/preprocess/derived.parquet",
+        "metadata_path": "data/preprocess/metadata.json",
+        "segment_output_path": "data/preprocess/segments.parquet",
+        "detailed_output_path": "data/preprocess/derived_detailed.parquet"
       },
       "options": {
         "verbose": true
       },
-      "source_path": "/mnt/g/dev/property_analyst/config/preprocessing.yml"
+      "source_path": "config/preprocessing.yml"
     },
     "cleaning": {
       "data_source": {
@@ -372,7 +372,7 @@
           ]
         }
       },
-      "dropped_rows_path": "/mnt/g/dev/property_analyst/data/preprocess/dropped_rows.parquet"
+      "dropped_rows_path": "data/preprocess/dropped_rows.parquet"
     },
     "derivation": {
       "spec_version": 1,
