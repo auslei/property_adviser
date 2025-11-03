@@ -8,6 +8,21 @@ from typing import Any, Dict, List, Mapping, Optional
 from property_adviser.core.config import load_config
 
 
+def _as_str_tuple(value: Any) -> tuple[str, ...]:
+    """Coerce a config value into a tuple[str, ...].
+
+    Accepts list/tuple/str/None; trims blanks; returns empty tuple for falsy values.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, (list, tuple)):
+        return tuple(str(v).strip() for v in value if v is not None and str(v).strip() != "")
+    if isinstance(value, str):
+        v = value.strip()
+        return (v,) if v else ()
+    return ()
+
+
 def _merge_dicts(base: Dict[str, Any], override: Mapping[str, Any]) -> Dict[str, Any]:
     merged = dict(base)
     for key, value in override.items():
@@ -114,22 +129,22 @@ class FeatureSelectionConfig:
         if dataset_format not in {"csv", "parquet"}:
             raise ValueError("dataset_format must be 'csv' or 'parquet'")
 
-        exclude_columns = tuple(mapping.get("exclude_columns", []))
-        manual_include = tuple(mapping.get("include_columns", []))
-        manual_exclude = tuple(mapping.get("manual_exclude", []))
+        exclude_columns = _as_str_tuple(mapping.get("exclude_columns", ()))
+        manual_include = _as_str_tuple(mapping.get("include_columns", ()))
+        manual_exclude = _as_str_tuple(mapping.get("manual_exclude", ()))
 
         id_like_cfg = mapping.get("id_like", {}) or {}
         id_like = IdLikeConfig(
             enable=bool(id_like_cfg.get("enable", True)),
             min_unique_ratio=float(id_like_cfg.get("min_unique_ratio", 0.98)),
-            drop_regex=tuple(id_like_cfg.get("drop_regex", [])),
+            drop_regex=_as_str_tuple(id_like_cfg.get("drop_regex", ())),
         )
 
         redundancy_cfg = mapping.get("redundancy", {}) or {}
         redundancy = RedundancyConfig(
             enable=bool(redundancy_cfg.get("enable", True)),
             threshold=float(redundancy_cfg.get("threshold", 0.95)),
-            prefer_keep=tuple(redundancy_cfg.get("prefer_keep", [])),
+            prefer_keep=_as_str_tuple(redundancy_cfg.get("prefer_keep", ())),
         )
 
         elimination_cfg = mapping.get("elimination", {}) or {}

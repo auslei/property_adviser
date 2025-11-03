@@ -13,26 +13,37 @@
    - Public helper `add_macro_yearly(df, macro_path=...)` merges annual macro fields by sale year.
    - See `property_adviser/macro/AGENTS.md` for source contracts and configuration patterns.
 
-1. **Preprocessing (`property_adviser/preprocess`)**
-   - Typed config loader (`load_preprocess_config`) + `run_preprocessing` keep CLI and automation aligned; CLI remains a thin wrapper.
-   - Cleaning normalises schema and dtype noise while derivation adds seasonality, suburb rolling stats, ratios, age features, configurable buckets, and optional macro enrichments.
-   - Segment builder rolls the dataset up to configurable grouping keys (suburb/property type/buckets) and generates future targets (e.g., `price_future_6m`, `price_future_12m`).
-   - Outputs land in `data/preprocess/cleaned.parquet`, `data/preprocess/segments.parquet`, optional `derived_detailed.parquet`, plus metadata/audit artefacts.
-   - Interface and dataset expectations live in `property_adviser/preprocess/AGENTS.md`.
+1. **Geocoding (`property_adviser/geocode`)**
+   - CLI: `uv run pa-geocode --config config/geocode.yml --verbose`.
+   - Enriches the cleaned dataset with latitude and longitude information.
+   - The level of geocoding (street or full address) is configurable.
+   - Output is saved to `data/geocode/geocoded.parquet`.
+   - See `property_adviser/geocode/AGENTS.md` for more details.
 
-2. **Feature Selection (`property_adviser/feature`)**
+2. **Cleaning (`property_adviser/clean`)**
+   - CLI: `uv run pa-clean --config config/clean.yml --verbose`.
+   - Cleans the raw data and saves it to `data/clean/cleaned.parquet`.
+   - See `property_adviser/clean/AGENTS.md` for more details.
+
+3. **Derivation (`property_adviser/derive`)**
+   - CLI: `uv run pa-derive --config config/derive.yml --verbose`.
+   - Takes the cleaned data, joins it with macro and geocoded data, and derives features.
+   - Saves the final dataset to `data/derive/derived.parquet`.
+   - See `property_adviser/derive/AGENTS.md` for more details.
+
+3. **Feature Selection (`property_adviser/feature`)**
    - Typed config loader + pipeline record elapsed timings, normalise scores, and expose consistent guardrail logging.
    - Supports correlation threshold or top-k selection, optional RFECV pruning with row/feature caps, and emits `feature_scores` plus X/y artefacts per target (`data/features/<target>/`). Existing files are overwritten.
    - CLI iterates through all targets in `config/features.yml`: `uv run pa-feature --config config/features.yml --scores-file feature_scores.parquet`.
    - Implementation notes, elimination tuning, and API usage: `property_adviser/feature/AGENTS.md`.
 
-3. **Model Training (`property_adviser/train`)**
+4. **Model Training (`property_adviser/train`)**
    - Typed configs (`load_training_config`) feed `run_training`, which logs per-stage timings and produces `TrainingResult` objects.
    - Performs month-based train/validation split, applies manual feature overrides, and supports shared preprocessing pipelines per target.
    - Persists bundles under `models/<YYYYMMDD>/<target>/` with stable filenames (`best_model.joblib`, `best_model.json`, `model_scores.csv`) so same-day reruns overwrite in place. Emits a daily `training_report.json` under `models/<YYYYMMDD>/`.
    - Detailed workflow and extension tips in `property_adviser/train/AGENTS.md`.
 
-4. **Prediction (`property_adviser/predict`)**
+5. **Prediction (`property_adviser/predict`)**
    - Loads persisted bundles (`models/best_model.joblib`) and reconstructs the feature frame expected by training.
    - Batch + single-property scoring helpers expose consistent signatures; confidence intervals leverage validation RMSE.
    - Reference `property_adviser/predict/AGENTS.md` for API usage and data contracts.
@@ -50,7 +61,9 @@
 
 ### Configuration Map
 - Macro: `config/macro.yml`
-- Preprocess: `config/preprocessing.yml` (split into `pp_clean.yml`, `pp_derive.yml`)
+- Geocode: `config/geocode.yml`
+- Clean: `config/clean.yml`
+- Derive: `config/derive.yml`
 - Features: `config/features.yml`
 - Model: `config/model.yml`
 - Optional reference data: `config/street_coordinates.csv`

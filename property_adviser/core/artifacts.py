@@ -7,13 +7,13 @@ from typing import Any, Iterable, Optional
 
 import joblib
 
+from property_adviser.core.app_logging import warn
 from property_adviser.core.io import read_json
 from property_adviser.core.paths import MODELS_DIR, TRAINING_DIR
 
 _DEFAULT_MODEL_CANDIDATES: tuple[Path, ...] = (
     MODELS_DIR / "model_final" / "best_model.joblib",
     MODELS_DIR / "best_model.joblib",
-    MODELS_DIR / "best_model.pkl",
 )
 
 
@@ -31,7 +31,7 @@ class ModelArtifacts:
 
 def locate_model_path(candidates: Optional[Iterable[Path]] = None) -> Path:
     """Return the first existing model path from the provided candidates."""
-    search = tuple(candidates) if candidates is not None else _DEFAULT_MODEL_CANDIDATES
+    search = tuple(candidates) if candidates is not None else _DEFAULT_DEFAULTS
     for path in search:
         if path.exists():
             return path
@@ -85,6 +85,8 @@ def load_model_artifacts(
         raw_summary = read_json(resolved_summary_path)
         if isinstance(raw_summary, dict):
             summary = raw_summary
+    else:
+        warn("model_summary.missing", path=str(resolved_summary_path))
 
     return ModelArtifacts(
         model=model,

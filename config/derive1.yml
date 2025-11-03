@@ -1,0 +1,203 @@
+input_path: data/clean/cleaned.parquet
+output_path: data/derive/derived1.parquet
+
+spec_version: 1
+settings:
+  on_missing_source: error
+  output_conflict: error
+  default_fillna: null
+  datasets:
+    macro_au_annual: data/macro/macro_au_annual.csv
+    geocoded_data: data/geocode/geocoded.parquet
+
+steps:
+
+  # ======= Joins ==========
+  
+  # 1) Enrich with Geocoded Data & Macro Indicators
+  - id: join_geocoded
+    type: join
+    enabled: true
+    right: geocoded_data
+    how: left
+    'on':
+      - streetAddress
+      - suburb
+      - postcode
+
+  - id: macro_join
+    type: join
+    enabled: true
+    right: macro_au_annual                 # runtime dataset keyed to the CSV path
+    how: left
+    'on':
+      - { left: saleYear, right: year }
+    select:
+      - asx200_close
+      - asx200_yoy
+      - cpi_index_dec
+      - cpi_yoy_dec
+      - cpi_index_avg
+      - cpi_yoy_avg
+      - cash_rate_avg
+      - cash_rate_eoy
+      - cash_rate_change_avg
+      - cash_rate_change_eoy
+
+  # ======= Feature Engineering ==========
+  # 2) Derived Simple Features with simple transformation.
+  - id: distance_to_cbd
+    type: simple
+    enabled: true
+    output: distance_to_cbd
+    method: distance_to_cbd
+
+  # Date Parts Extraction
+  - id: sale_date_parts
+    type: simple
+    enabled: true
+    method: date_parts
+    config:
+      source: saleDate
+      year_output: saleYear
+      month_output: saleMonth
+      year_month_output: saleYearMonth
+
+  # Street Extraction
+  - id: street
+    type: simple
+    enabled: true
+    source: streetAddress
+    output: street
+    method: extract_street
+    config:
+      unknown_value: "Unknown"
+
+  # Cyclical Encoding of Month
+  - id: month_cyclical
+    type: simple
+    enabled: true
+    source: saleMonth
+    output: [saleMonth_sin, saleMonth_cos]
+    method: cyclical_encode
+    config:
+      period: 12
+
+  # Property Size & Density Ratios
+  - id: ratio_land_per_bed
+    type: simple
+    enabled: true
+    output: ratio_land_per_bed
+    method: expr
+    config:
+      expr: "landSizeM2 / nullif(bed + 1, 0)"
+
+  - id: ratio_floor_per_bed
+    type: simple
+    enabled: true
+    output: ratio_floor_per_bed
+    method: expr
+    config:
+      expr: "floorSizeM2 / nullif(bed + 1, 0)"
+
+  - id: ratio_car_per_bed
+    type: simple
+    enabled: true
+    output: ratio_car_per_bed
+    method: expr
+    config:
+      expr: "car / nullif(bed + 1, 0)"
+
+  - id: ratio_bed_bath
+    type: simple
+    enabled: true
+    output: ratio_bed_bath
+    method: expr
+    config:
+      expr: "bed / nullif(bath + 1, 0)"
+
+  - id: price_per_area_land
+    type: simple
+    enabled: true
+    output: price_per_sqm_land
+    method: expr
+    config:
+      expr: "clip(salePrice / nullif(landSizeM2, 0), 0, None)"
+
+  - id: price_per_area_floor
+    type: simple
+    enabled: true
+    output: price_per_sqm_floor
+    method: expr
+    config:
+      expr: "clip(salePrice / nullif(floorSizeM2, 0), 0, None)"
+
+  # Age & Vintage
+  - id: property_age
+    type: simple
+    enabled: true
+    output: propertyAge
+    method: expr
+    config:
+      expr: "max(saleYear - yearBuilt, 0)"
+
+  # ======== Binning / Bucketing ==========
+
+  # Age Buckets
+  - id: property_age_bands
+    type: bin
+    enabled: true
+    source: propertyAge
+    output: propertyAgeBand
+    method: fixed
+    config:
+      edges: [5, 20]
+      labels: ["0–5", "6–20", "21+"]
+
+  # Bed Buckets
+  - id: bed_bucket
+    type: bin
+    enabled: true
+    source: bed
+    output: bed_bucket
+    method: fixed
+    config:
+      edges: [2, 3, 4]
+      labels: ["<=2", "3", "4", "5+"]
+      fill_value: "Unknown"
+
+  # Bath Buckets
+  - id: bath_bucket
+    type: bin
+    enabled: true
+    source: bath
+    output: bath_bucket
+    method: fixed
+    config:
+      edges: [1, 2, 3]
+      labels: ["0-1", "2", "3", "4+"]
+      fill_value: "Unknown"
+
+  # Land Size Buckets
+  - id: land_bucket
+    type: bin
+    enabled: true
+    source: landSizeM2
+    output: land_bucket
+    method: fixed
+    config:
+      edges: [400, 700]
+      labels: ["<=400", "401-700", "700+"]
+      fill_value: "Unknown"
+
+  # Floor Size Buckets
+  - id: floor_bucket
+    type: bin
+    enabled: true
+    source: floorSizeM2
+    output: floor_bucket
+    method: fixed
+    config:
+      edges: [150, 220]
+      labels: ["<=150", "151-220", "220+"]
+      fill_value: "Unknown"

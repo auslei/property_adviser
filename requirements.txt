@@ -7,3 +7,5 @@ matplotlib
 seaborn
 scipy
 statsmodels
+streamlit
+altair

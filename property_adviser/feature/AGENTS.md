@@ -27,8 +27,9 @@ property_adviser/feature/
 - Config-driven overrides: set `include_columns` / `manual_exclude` in `config/features.yml` to guarantee critical predictors (e.g., segment buckets) remain in the selected set while still computing their feature importance.
 
 ## Metrics & Selection
-- Metrics: `pearson_abs`, normalised `mutual_info`, and `eta` (computed via `compute_feature_scores`).
-- Best score = `max(pearson_abs, mutual_info, eta)` with `best_metric` storing the winner.
+- Metrics: `pearson_abs`, normalised `mutual_info`, `eta`, and `bic_improvement` (computed via `compute_feature_scores`).
+- `bic_improvement` = BIC(null) − BIC(model with feature), using OLS; positive means the feature improves fit. Categorical features use one-hot encoding (drop-first).
+- Best score = `max(pearson_abs, mutual_info, eta, bic_improvement)` with `best_metric` storing the winner.
 - Guardrails: drop ID-like columns, enforce family rules, prune highly correlated pairs, and annotate reasons in the shared scores table.
 - Manual overrides (`include`, `exclude`, `use_top_k`, `top_k`) always take precedence.
 - Configured `include_columns` are prepended before manual CLI overrides so critical columns survive thresholding and redundancy pruning.

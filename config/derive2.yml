@@ -1,0 +1,255 @@
+input_path: data/derive/derived1.parquet
+output_path: data/derive/derived2.parquet
+
+spec_version: 1
+settings:
+  on_missing_source: error
+  output_conflict: error
+  default_fillna: null
+  datasets:
+    macro_au_annual: data/macro/macro_au_annual.csv
+    geocoded_data: data/geocode/geocoded.parquet
+
+steps:
+  # ======= Feature Engineering ==========
+  # Aggregations for Segment-Level Features
+  - id: current_price_median
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: salePrice
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      median: current_price_median
+
+  - id: current_price_mean
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: salePrice
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      mean: current_price_mean
+
+  # Rolling trend stats for current segment price
+  - id: current_price_roll_12m
+    type: rolling
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    sort_by: saleYearMonth
+    target: current_price_median
+    window: 12
+    outputs:
+      mean: current_price_median_roll_mean_12m
+      std: current_price_median_roll_std_12m
+    config:
+      min_periods: 3
+      center: false
+
+  - id: suburb_type_price_current
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType]
+    time_col: saleYearMonth
+    target: salePrice
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      median: suburb_type_price_median_current
+
+  - id: street_price_current
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, street, propertyType]
+    time_col: saleYearMonth
+    target: salePrice
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      median: street_price_median_current
+    config:
+      min_count: 5
+
+  # Relative price signals (log-ratios) vs suburb-type median
+  - id: rel_segment_vs_suburb_type_log
+    type: simple
+    enabled: true
+    output: rel_segment_vs_suburb_type_log
+    method: expr
+    config:
+      expr: "log(nullif(current_price_median, 0)) - log(nullif(suburb_type_price_median_current, 0))"
+
+  - id: rel_street_vs_suburb_type_log
+    type: simple
+    enabled: true
+    output: rel_street_vs_suburb_type_log
+    method: expr
+    config:
+      expr: "log(nullif(street_price_median_current, 0)) - log(nullif(suburb_type_price_median_current, 0))"
+
+  - id: transaction_count
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: salePrice
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      count: transaction_count
+
+  - id: avg_land_size
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: landSizeM2
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      mean: avg_land_size
+
+  - id: avg_floor_size
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: floorSizeM2
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      mean: avg_floor_size
+
+  - id: ratio_land_per_bed_mean
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: ratio_land_per_bed
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      mean: ratio_land_per_bed_mean
+
+  - id: ratio_floor_per_bed_mean
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: ratio_floor_per_bed
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      mean: ratio_floor_per_bed_mean
+
+  - id: ratio_car_per_bed_mean
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: ratio_car_per_bed
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      mean: ratio_car_per_bed_mean
+
+  - id: ratio_bed_bath_mean
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: ratio_bed_bath
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      mean: ratio_bed_bath_mean
+
+  - id: price_per_sqm_land_median
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: price_per_sqm_land
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      median: price_per_sqm_land_median
+
+  - id: price_per_sqm_floor_median
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType, bed_bucket, bath_bucket, floor_bucket]
+    time_col: saleYearMonth
+    target: price_per_sqm_floor
+    window:
+      past: 0
+      future: 0
+      unit: months
+      include_current: false
+    outputs:
+      median: price_per_sqm_floor_median
+
+  # carry: macro columns already joined; nothing else to configure here
+
+  # 8) Target Variable
+  - id: suburb_type_price_median_12m
+    type: time_aggregate
+    enabled: true
+    group_by: [suburb, propertyType]
+    time_col: saleYearMonth
+    target: salePrice
+    window:
+      past: 11
+      future: 0
+      unit: months
+      include_current: true
+    outputs:
+      median: suburb_type_price_median_12m
+
+  - id: normalized_price
+    type: simple
+    enabled: true
+    output: normalized_price
+    method: expr
+    config:
+      expr: "salePrice / nullif(suburb_type_price_median_12m, 0)"

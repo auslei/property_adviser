@@ -1,7 +1,6 @@
 bed_bucket
 land_bucket
 floor_bucket
-saleYearMonth
 current_price_median
 avg_land_size
 avg_floor_size
@@ -43,4 +42,3 @@ suburb_volatility_12m
 suburb_volatility_3m
 current_price_median_yoy
 current_price_median_6m_change
-price_future_6m_delta

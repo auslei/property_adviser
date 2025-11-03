@@ -63,11 +63,15 @@ def run_full_pipeline(
             config_path=str(model_config),
             overrides={"verbose": verbose},
         )
-        stages.append(("train", Path(train_outcome["canonical_model_path"])))
+        best = (train_outcome or {}).get("best_overall") or {}
+        best_path = best.get("canonical_model_path")
+        best_model = best.get("model")
+        stage_path: Path | None = Path(best_path) if best_path else None
+        stages.append(("train", stage_path))
         log(
             "pipeline.train_complete",
-            model=train_outcome["best_model"],
-            path=train_outcome["canonical_model_path"],
+            model=best_model,
+            path=str(best_path) if best_path else None,
         )
     except Exception as exc:  # pragma: no cover - we want to bubble up
         log_exc("pipeline.train_failed", exc)

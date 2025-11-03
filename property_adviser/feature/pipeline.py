@@ -77,10 +77,10 @@ def _scores_dict_to_frame(scores: Dict[str, Dict[str, float]]) -> pd.DataFrame:
         row.update(metrics)
         rows.append(row)
     df = pd.DataFrame(rows)
-    for col in ("pearson_abs", "mutual_info", "eta"):
+    for col in ("pearson_abs", "mutual_info", "eta", "bic_improvement"):
         if col not in df.columns:
             df[col] = pd.NA
-    metric_cols = ["pearson_abs", "mutual_info", "eta"]
+    metric_cols = ["pearson_abs", "mutual_info", "eta", "bic_improvement"]
     df["best_score"] = df[metric_cols].max(axis=1, skipna=True)
     df["best_metric"] = df[metric_cols].idxmax(axis=1, skipna=True)
     return df
@@ -574,7 +574,11 @@ def run_feature_selection(
 
     scores_df["selected"] = scores_df["feature"].isin(set(selected_cols))
 
-    X = df[selected_cols]
+    # Ensure month column is available for training split even if not selected
+    month_helpers = [c for c in ("saleYearMonth",) if c in df.columns]
+    save_cols = selected_cols + [c for c in month_helpers if c not in selected_cols]
+
+    X = df[save_cols]
     y = df[config.target] if config.target in df else df[[config.target]]
 
     output_dir: Optional[Path] = None
@@ -593,7 +597,7 @@ def run_feature_selection(
         save_parquet_or_csv(X, output_dir / f"X{dataset_ext}")
         y_frame = y if isinstance(y, pd.DataFrame) else y.to_frame(name=config.target)
         save_parquet_or_csv(y_frame, output_dir / f"y{dataset_ext}")
-        train = df[selected_cols + [config.target]]
+        train = df[save_cols + [config.target]]
         save_parquet_or_csv(train, output_dir / f"training{dataset_ext}")
 
     elapsed = perf_counter() - overall_start

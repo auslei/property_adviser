@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Any
 
 import pandas as pd
 
@@ -164,8 +164,15 @@ def fetch_reference_features(
     suburb: str,
     sale_year_month: int,
     columns: Iterable[str],
+    *,
+    extra_filters: Optional[Dict[str, Any]] = None,
 ) -> pd.Series:
-    """Return representative feature values for a suburb/month combination."""
+    """Return representative feature values for a suburb/month (and optional group filters).
+
+    extra_filters: optional mapping of column->value to further filter candidate rows
+    (e.g., propertyType, bed_bucket, bath_bucket, floor_bucket). If no rows match
+    all filters, falls back to suburb-only selection.
+    """
     df = _load_dataframe()
     if "suburb" not in df.columns:
         return pd.Series(index=list(columns), dtype=object)
@@ -175,15 +182,24 @@ def fetch_reference_features(
     if subset.empty:
         return pd.Series(index=list(columns), dtype=object)
 
-    if "saleYearMonth" in subset.columns:
-        subset = subset.sort_values("saleYearMonth")
-        exact = subset[subset["saleYearMonth"] == sale_year_month]
+    # Apply optional extra filters
+    filtered = subset
+    if extra_filters:
+        for key, value in extra_filters.items():
+            if key in filtered.columns and value is not None and not (isinstance(value, float) and pd.isna(value)):
+                filtered = filtered[filtered[key] == value]
+        if filtered.empty:
+            filtered = subset
+
+    if "saleYearMonth" in filtered.columns:
+        filtered = filtered.sort_values("saleYearMonth")
+        exact = filtered[filtered["saleYearMonth"] == sale_year_month]
         if not exact.empty:
             row = exact.iloc[-1]
         else:
-            prior = subset[subset["saleYearMonth"] <= sale_year_month]
-            row = prior.iloc[-1] if not prior.empty else subset.iloc[-1]
+            prior = filtered[filtered["saleYearMonth"] <= sale_year_month]
+            row = prior.iloc[-1] if not prior.empty else filtered.iloc[-1]
     else:
-        row = subset.iloc[-1]
+        row = filtered.iloc[-1]
 
     return row.reindex(index=list(columns))

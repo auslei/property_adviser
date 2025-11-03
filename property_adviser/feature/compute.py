@@ -4,7 +4,13 @@ from pathlib import Path
 import pandas as pd
 
 from property_adviser.core.io import load_parquet_or_csv
-from property_adviser.feature.metrics import pearson_abs, mutual_info_numeric, correlation_ratio
+from property_adviser.feature.metrics import (
+    pearson_abs,
+    mutual_info_numeric,
+    correlation_ratio,
+    bic_improvement_numeric,
+    bic_improvement_categorical,
+)
 
 
 def compute_feature_scores(df, target, exclude, mi_rs):
@@ -18,16 +24,19 @@ def compute_feature_scores(df, target, exclude, mi_rs):
     candidates = [c for c in df.columns if c not in exclude | {target}]
     scores: Dict[str, Dict[str, float]] = {}
     
-    # Numeric features → MI + Pearson
+    # Numeric features → MI + Pearson + BIC improvement
     num_cols = df[candidates].select_dtypes(include=["number"]).columns
     for col in num_cols:
         mi = mutual_info_numeric(df[col], y, random_state=mi_rs)
         pr = pearson_abs(df[col], y)
+        bic = bic_improvement_numeric(df[col], y)
         d: Dict[str, float] = {}
         if pd.notna(mi):
             d["mutual_info"] = float(mi)
         if pd.notna(pr):
             d["pearson_abs"] = float(pr)
+        if pd.notna(bic):
+            d["bic_improvement"] = float(bic)
         if d:
             scores[col] = d
     
@@ -40,12 +49,18 @@ def compute_feature_scores(df, target, exclude, mi_rs):
                 if "mutual_info" in d:
                     d["mutual_info"] = (d["mutual_info"] - mi_min) / (mi_max - mi_min)
     
-    # Categorical features → Correlation Ratio (η)
+    # Categorical features → Correlation Ratio (η) + BIC improvement (one-hot)
     cat_cols = df[candidates].select_dtypes(include=["object", "category", "string"]).columns
     for col in cat_cols:
         eta = correlation_ratio(df[col], y)
+        bic = bic_improvement_categorical(df[col], y)
+        d: Dict[str, float] = {}
         if pd.notna(eta):
-            scores[col] = {"eta": float(eta)}
+            d["eta"] = float(eta)
+        if pd.notna(bic):
+            d["bic_improvement"] = float(bic)
+        if d:
+            scores[col] = d
             
     return scores
     

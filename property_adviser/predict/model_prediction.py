@@ -17,6 +17,7 @@ from property_adviser.predict.feature_store import (
     list_streets,
     list_suburbs,
 )
+from property_adviser.preprocess.preprocess_derive import extract_street as _extract_street
 
 
 def load_trained_model() -> tuple:
@@ -44,6 +45,7 @@ def _base_candidates(metadata: Dict[str, Any]) -> List[str]:
     candidates.extend([
         "current_price_median",
         "suburb_price_median_current",
+        "suburb_type_price_median_current",
         "price_current_median",
     ])
     return candidates
@@ -210,16 +212,21 @@ def _prepare_prediction_data(
     if "floorSizeM2" in df.columns:
         df["floorSizeM2"] = pd.to_numeric(df["floorSizeM2"], errors="coerce")
 
-    # Derive selected engineered features from inputs when required
-    derive_info = _load_derive_buckets_and_mappings()
-    if "property_type_tag" in model_columns:
-        mapping_info = derive_info.get("mappings", {}).get("property_type_tag")
-        if mapping_info:
-            mapping = mapping_info.get("mapping", {})
-            default = mapping_info.get("default", "other")
-            df["property_type_tag"] = df.get("propertyType", "").astype(str).str.upper().map(mapping).fillna(default)
-        else:
-            df["property_type_tag"] = df.get("propertyType", "").astype(str).str.upper().map({"HOUSE": "house", "TOWNHOUSE": "house"}).fillna("other")
+    # Normalize propertyType if present in model columns
+    def _canon_property_type(x: Any) -> Optional[str]:
+        s = str(x or "").strip().lower()
+        if not s:
+            return None
+        if any(tok in s for tok in ["house", "townhouse", "dwelling"]):
+            return "House"
+        if any(tok in s for tok in ["unit", "villa", "duplex"]):
+            return "Unit"
+        if any(tok in s for tok in ["apartment", "flat", "studio"]):
+            return "Apartment"
+        return None
+
+    if "propertyType" in model_columns or "propertyType" in df.columns:
+        df["propertyType"] = df.get("propertyType", "").apply(_canon_property_type)
 
     # Buckets computed from inputs if present in model columns
     def _apply_bucket(source_col: str, output_col: str) -> None:
@@ -266,10 +273,19 @@ def _prepare_prediction_data(
         sale_year_month = pd.to_numeric(row.get("saleYearMonth"), errors="coerce")
         if suburb and not pd.isna(sale_year_month):
             try:
+                # Provide extra filters for group-aware feature hydration when available
+                extra_filters: Dict[str, Any] = {}
+                for key in ("propertyType", "bed_bucket", "bath_bucket", "floor_bucket"):
+                    if key in prepared.columns and not pd.isna(prepared.at[idx, key]):
+                        extra_filters[key] = prepared.at[idx, key]
+                # Include street when available to hydrate street-level aggregates accurately
+                if "street" in row.index and isinstance(row["street"], str) and row["street"].strip():
+                    extra_filters["street"] = row["street"].strip()
                 reference = fetch_reference_features(
                     suburb=suburb,
                     sale_year_month=int(sale_year_month),
                     columns=[col for col in model_columns if col not in {"saleYearMonth"}],
+                    extra_filters=extra_filters if extra_filters else None,
                 )
             except FileNotFoundError:
                 reference = None
@@ -504,3 +520,6 @@ if __name__ == "__main__":
     except FileNotFoundError as e:
         print(f"Error: {e}")
         print("Please ensure the model has been trained before making predictions.")
+    # Normalise street if present to match derive extraction (title-cased, unit/number stripped)
+    if "street" in df.columns:
+        df["street"] = df["street"].apply(lambda s: _extract_street(s, {"unknown_value": "Unknown"}))

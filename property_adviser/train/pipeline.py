@@ -193,17 +193,22 @@ def _apply_feature_overrides(X: pd.DataFrame, feature_scores: Optional[pd.DataFr
     if "feature" not in fs.columns:
         return X
     features = fs["feature"].astype(str)
+    month_helpers = [c for c in ("saleYearMonth",) if c in X.columns]
     if "selected" in fs.columns:
         keep = features[fs["selected"].astype(bool)].tolist()
         keep = [c for c in keep if c in X.columns]
-        return X[keep] if keep else X
+        # Always preserve month column(s) for downstream splitting
+        keep_with_month = list(dict.fromkeys((keep or X.columns.tolist()) + month_helpers)) if keep else X.columns.tolist()
+        return X[keep_with_month]
     include = set(features[fs.get("include", pd.Series(dtype=bool)).astype(bool)])
     exclude = set(features[fs.get("exclude", pd.Series(dtype=bool)).astype(bool)])
     if include:
         keep_cols = [c for c in X.columns if c in include and c not in exclude]
     else:
         keep_cols = [c for c in X.columns if c not in exclude]
-    return X[keep_cols] if keep_cols else X
+    # Always preserve month column(s)
+    keep_cols = list(dict.fromkeys((keep_cols or X.columns.tolist()) + month_helpers)) if keep_cols else X.columns.tolist()
+    return X[keep_cols]
 
 
 def _build_preprocessor(X: pd.DataFrame) -> Tuple[ColumnTransformer, List[str], List[str]]:
@@ -343,6 +348,11 @@ def run_training(config: TrainingConfig) -> TrainingResult:
     X_tr, X_va, y_tr, y_va = _split_by_month(
         X_effective, y, config.split.month_column, validation_month
     )
+    # Drop month column from modeling features to avoid target leakage through time index
+    if config.split.month_column in X_tr.columns:
+        X_tr = X_tr.drop(columns=[config.split.month_column])
+    if config.split.month_column in X_va.columns:
+        X_va = X_va.drop(columns=[config.split.month_column])
     log(
         "train.split",
         train_rows=len(X_tr),

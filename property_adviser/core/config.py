@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import Any, Dict
 import yaml
+from property_adviser.geocode.config import GeocodeConfig
 
 
 def load_config(path: Path) -> Dict[str, Any]:
@@ -22,6 +23,11 @@ def load_config(path: Path) -> Dict[str, Any]:
     if not isinstance(cfg, dict) or not cfg:
         raise ValueError(f"Config at {path} is empty or not a mapping")
     return cfg
+
+def load_geocode_config(path: Path) -> GeocodeConfig:
+    """Load geocode config from YAML."""
+    raw_config = load_config(path)
+    return GeocodeConfig.from_dict(raw_config)
 
 
 def require(cfg: Dict[str, Any], *keys: str) -> Any:

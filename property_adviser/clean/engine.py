@@ -1,0 +1,394 @@
+# src/preprocess_clean.py
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Mapping
+
+import re
+import unicodedata
+
+import numpy as np
+import pandas as pd
+
+from property_adviser.core.app_logging import log, warn, error
+
+from property_adviser.clean.config import CleanConfig
+
+__all__ = ["clean_data"]
+
+# ----------------------------
+# Internal helpers (private)
+# ----------------------------
+
+_DROPPED_CHUNKS: List[pd.DataFrame] = []
+
+def _filter_with_reason(df: pd.DataFrame, mask: pd.Series, reason: str) -> pd.DataFrame:
+    """Keep rows where mask is True; record dropped rows with a reason."""
+    if mask.dtype != bool or mask.shape[0] != df.shape[0]:
+        raise ValueError("Mask must be boolean and aligned with dataframe")
+    dropped = df.loc[~mask].copy()
+    if not dropped.empty:
+        dropped["_drop_reason"] = reason
+        _DROPPED_CHUNKS.append(dropped)
+    return df.loc[mask].copy()
+
+def _emit_drop_audit(audit_path: Optional[Path]) -> None:
+    """Write a parquet audit of dropped rows when a path is supplied."""
+    if not _DROPPED_CHUNKS:
+        return
+    if audit_path is None:
+        warn("rows.audit_skipped", reason="no_dropped_rows_path", dropped_chunks=len(_DROPPED_CHUNKS))
+        return
+
+    out = Path(audit_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    audit = pd.concat(_DROPPED_CHUNKS, ignore_index=True)
+    audit.to_parquet(out, index=False)
+    log("rows.audit_written", path=str(out), rows=int(audit.shape[0]))
+
+def _normalize_text(value: str, replace_map: Dict[str, str]) -> str:
+    """ASCII-normalise text, applying configured character replacements first."""
+    for src, dst in replace_map.items():
+        value = value.replace(src, dst).strip().upper().replace("  ", " ")
+    value = unicodedata.normalize("NFKD", value)
+    return value.encode("ascii", "ignore").decode("ascii")
+
+
+def _clean_column_name(raw: str, used: Dict[str, int], replace_map: Dict[str, str]) -> str:
+    """Turn raw column name into camelCase and ensure uniqueness within the frame."""
+    name = _normalize_text(str(raw), replace_map).strip()
+    tokens = [t for t in re.split(r"[^0-9a-zA-Z]+", name) if t] or ["column"]
+    base = tokens[0].lower() + "".join(t.capitalize() for t in tokens[1:])
+    n = used.get(base, 0)
+    used[base] = n + 1
+    return f"{base}{n + 1}" if n else base
+
+
+def _filter_columns(df: pd.DataFrame, include: Optional[List[str]]) -> pd.DataFrame:
+    """Keep only columns listed in `include` (ignore missing)."""
+    if not include:
+        return df
+    keep = [c for c in include if c in df.columns]
+    return df[keep]
+
+def _has_cols(df: pd.DataFrame, cols: list[str]) -> tuple[bool, list[str]]:
+    missing = [c for c in cols if c not in df.columns]
+    return (len(missing) == 0, missing)
+
+def _safe_ratio(n: pd.Series, d: pd.Series) -> pd.Series:
+    out = n / d
+    return out.replace([np.inf, -np.inf], np.nan)
+
+def _norm_token(s: str) -> str:
+    """Uppercase, strip punctuation, collapse spaces."""
+    if not isinstance(s, str):
+        return ""
+    s = s.upper()
+    s = re.sub(r"[^A-Z0-9& ]+", " ", s)   # keep & for 'BIGGIN & SCOTT'
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+# --- Derivation Functions -------------------------------------------------
+
+class _CategoryMapping:
+    __slots__ = ("source", "output", "rules", "default", "mode", "preserve_unmatched")
+
+    def __init__(
+        self,
+        *,
+        source: str,
+        output: str,
+        rules: Dict[str, List[str]],
+        default: Optional[str],
+        mode: str,
+        preserve_unmatched: bool,
+    ) -> None:
+        self.source = source
+        self.output = output
+        self.rules = rules
+        self.default = default
+        self.mode = mode
+        self.preserve_unmatched = preserve_unmatched
+
+
+def _normalise_mapping_spec(column: str, spec: Any) -> Optional[_CategoryMapping]:
+    if not isinstance(spec, dict) or not spec:
+        warn("clean.category_map", reason="bad_spec", column=column)
+        return None
+
+    if "rules" in spec:
+        rules = spec.get("rules", {})
+        if not isinstance(rules, dict):
+            warn("clean.category_map", reason="bad_rules", column=column)
+            return None
+        return _CategoryMapping(
+            source=spec.get("source", column),
+            output=column,
+            rules={k: list(v or []) for k, v in rules.items()},
+            default=spec.get("default", "Other"),
+            mode=str(spec.get("mode", "contains")).lower(),
+            preserve_unmatched=bool(spec.get("preserve_unmatched", False)),
+        )
+
+    # Back-compat: dict of canonical -> keywords maps in-place on same column
+    return _CategoryMapping(
+        source=column,
+        output=column,
+        rules={k: list(v or []) for k, v in spec.items()},
+        default=None,
+        mode="contains",
+        preserve_unmatched=True,
+    )
+
+
+def _apply_mapping(df: pd.DataFrame, mapping: _CategoryMapping) -> pd.DataFrame:
+    if mapping.source not in df.columns:
+        warn(
+            "clean.category_map",
+            reason="missing_source",
+            source=mapping.source,
+            output=mapping.output,
+        )
+        return df
+
+    base = df[mapping.source].astype(str).map(_norm_token)
+
+    if mapping.preserve_unmatched and mapping.output == mapping.source:
+        out = df[mapping.source].astype(object).to_numpy(copy=True)
+    elif mapping.default is not None:
+        out = np.full(len(df), mapping.default, dtype=object)
+    else:
+        out = df[mapping.source].astype(object).to_numpy(copy=True)
+
+    for canonical, keywords in mapping.rules.items():
+        if not keywords:
+            continue
+        normalised_keywords = [_norm_token(k) for k in keywords if k]
+        if not normalised_keywords:
+            continue
+        if mapping.mode == "exact":
+            mask = base.isin(normalised_keywords)
+        else:
+            mask = False
+            for kw in normalised_keywords:
+                mask = mask | base.str.contains(re.escape(kw), regex=True, case=False)
+        out[mask] = canonical
+
+    df[mapping.output] = out
+    log(
+        "clean.category_map",
+        source=mapping.source,
+        output=mapping.output,
+        unique=int(pd.Series(out).nunique()),
+    )
+    return df
+
+
+def apply_category_mappings(
+    df: pd.DataFrame,
+    mappings: Dict[str, Any],
+) -> pd.DataFrame:
+    if not isinstance(mappings, dict) or not mappings:
+        return df
+
+    for column, spec in mappings.items():
+        mapping = _normalise_mapping_spec(column, spec)
+        if mapping is None:
+            continue
+        df = _apply_mapping(df, mapping)
+
+    return df
+
+
+def _drop_mostly_empty_columns(df: pd.DataFrame, min_fraction: float) -> pd.DataFrame:
+    """Drop columns with < `min_fraction` non-null values."""
+    non_null_fraction = df.notna().mean()
+    keep = non_null_fraction[non_null_fraction >= min_fraction].index
+    return df.loc[:, keep]
+
+
+def _to_numeric(s: pd.Series) -> pd.Series:
+    """Strip common non-numeric characters and coerce to numeric (NaN on failure)."""
+    cleaned = (
+        s.astype(str)
+        .str.replace(r"[,$]", "", regex=True)
+        .str.replace(r"[^0-9.-]+", "", regex=True)
+        .replace({"": np.nan, "-": np.nan, "nan": np.nan})
+    )
+    return pd.to_numeric(cleaned, errors="coerce")
+
+
+def _normalize_strings(s: pd.Series) -> pd.Series:
+    """Trim and normalize common null-like tokens to NaN."""
+    return s.astype(str).str.strip().replace(
+        {"": np.nan, "-": np.nan, "nan": np.nan, "NaT": np.nan, "None": np.nan}
+    )
+
+
+def _bucket_categorical(s: pd.Series, min_count: int) -> pd.Series:
+    """Bucket infrequent categories into 'Other' (preserve 'Unknown')."""
+    counts = s.value_counts(dropna=False)
+    allowed = set(counts[counts >= min_count].index)
+    return s.apply(lambda v: v if v in allowed or v == "Unknown" else "Other")
+
+
+def _load_data(data_path: str, pattern: str, encoding: str) -> pd.DataFrame:
+    """Load and vertically concat all CSVs under a base path matching a pattern."""
+    base = Path(data_path)
+    csv_paths = sorted(base.glob(pattern))
+    if not csv_paths:
+        msg = f"No CSV files found in {base} matching pattern '{pattern}'."
+        error("io.read_csv", error=msg, base=str(base), pattern=pattern)
+        raise FileNotFoundError(msg)
+
+    frames: List[pd.DataFrame] = []
+    for p in csv_paths:
+        try:
+            df = pd.read_csv(p, encoding=encoding)
+            log("io.read_csv", file=str(p), rows=int(df.shape[0]), cols=int(df.shape[1]))
+        except ValueError as ve:
+            warn("io.read_csv", file=str(p), reason="usecols_mismatch", error=str(ve), fallback="read_all_cols")
+            df = pd.read_csv(p, encoding=encoding)
+            log("io.read_csv", file=str(p), rows=int(df.shape[0]), cols=int(df.shape[1]), mode="fallback_all_cols")
+
+        df["__source_file"] = p.name
+        frames.append(df)
+
+    combined = pd.concat(frames, ignore_index=True)
+    log("io.concat", files=len(frames), rows=int(combined.shape[0]), cols=int(combined.shape[1]))
+    return combined
+
+
+
+# ----------------------------
+# Public pipeline
+# ----------------------------
+def clean_data(config: CleanConfig) -> None:
+    """
+    Phase 1: CLEANING
+      1) Read CSVs (strictly from config.data_source)
+      2) Rename columns
+      3) Drop mostly-empty columns
+      4) Apply category mappings
+      5) Coerce numerics, normalise strings/dates
+      6) Fill NaNs (non-target) BEFORE filtering required columns
+      7) Filter rows missing required fields; filter target last
+      8) Bucket high-cardinality categoricals (if configured)
+    """
+    # --- config (strict) ---
+    _DROPPED_CHUNKS.clear()
+
+    cfg = config.config
+    ds = cfg["data_source"]
+    min_non_null = float(cfg["min_non_null_fraction"])
+    special_to_ascii: Dict[str, str] = cfg["special_to_ascii"]
+
+    # Required lists (no inline defaults)
+    if "numeric_candidates" not in cfg:
+        raise KeyError("Missing 'numeric_candidates' in cleaning config")
+
+    combined = _load_data(config.input_path, ds["pattern"], ds["encoding"])
+
+    # --- rename columns to camelCase (unique) ---
+    used: Dict[str, int] = {}
+    new_cols = [_clean_column_name(c, used, special_to_ascii) for c in combined.columns]
+    combined.columns = new_cols
+    log("columns.renamed", count=len(new_cols))
+
+    # --- drop mostly-empty columns ---
+    before_cols = combined.shape[1]
+    combined = _drop_mostly_empty_columns(combined, min_non_null)
+    log("columns.drop_mostly_empty", threshold=min_non_null, cols_in=before_cols, cols_out=int(combined.shape[1]))
+
+    if cfg.get("category_mappings"):
+        combined = apply_category_mappings(combined, cfg["category_mappings"])
+        log("categorical.map", columns=list(cfg["category_mappings"].keys()))
+
+    # --- numeric coercion (strictly from config-provided list) ---
+    numeric_candidates: List[str] = list(cfg["numeric_candidates"])
+    for col in numeric_candidates:
+        if col in combined.columns:
+            combined[col] = _to_numeric(combined[col])
+    log("numeric.coerce", candidates=numeric_candidates)
+
+    # --- replace non-ascii characters on selected columns (if configured) ---
+    if cfg.get("normalise_text_columns"):
+        for col in cfg["normalise_text_columns"]:
+            if col in combined.columns:
+                combined[col] = combined[col].apply(
+                    lambda x: _normalize_text(str(x), special_to_ascii) if pd.notna(x) else x
+                )
+        log("normalise_text_columns", columns=list(cfg["normalise_text_columns"]))
+
+    # --- date normalisation ---
+    if "saleDate" in combined.columns:
+        before = len(combined)
+        combined["saleDate"] = pd.to_datetime(combined["saleDate"], errors="coerce")
+        log("dates.sale_parsed", cols=["saleDate"], rows_in=before, rows_out=len(combined))
+
+    # --- string normalisation across object/string columns ---
+    for col in combined.select_dtypes(include=["object", "string"]).columns:
+        combined[col] = _normalize_strings(combined[col])
+    log("strings.normalised")
+
+    # -----------------------------
+    # FILL NaNs BEFORE required-filter
+    # -----------------------------
+    target = cfg.get("primary_target", "salePrice")
+    numeric_cols = combined.select_dtypes(include=["number"]).columns.tolist()
+    for c in numeric_cols:
+        if c != target:  # do not impute the target here
+            combined[c] = combined[c].fillna(combined[c].median())
+
+    categorical_cols = combined.select_dtypes(include=["object"]).columns.tolist()
+    for c in categorical_cols:
+        combined[c] = combined[c].fillna("Unknown")
+    log("na.fill", numeric_cols=numeric_cols, categorical_cols=categorical_cols)
+
+    # --- data cleaning ---
+    data_cleaning_steps = cfg.get("data_cleaning", [])
+    for step in data_cleaning_steps:
+        step_type = step.get("type")
+        columns = step.get("columns", [])
+
+        for col in columns:
+            if col not in combined.columns:
+                continue
+
+            before = int(combined.shape[0])
+
+            if step_type == "drop_na":
+                combined = _filter_with_reason(combined, combined[col].notna(), f"{col}:drop_na")
+                log("rows.drop_na", column=col, rows_in=before, rows_out=int(combined.shape[0]))
+
+            elif step_type == "drop_zeros":
+                combined = _filter_with_reason(combined, combined[col] != 0, f"{col}:drop_zeros")
+                log("rows.drop_zeros", column=col, rows_in=before, rows_out=int(combined.shape[0]))
+
+            elif step_type == "remove_outliers":
+                method = step.get("method", "iqr")
+                if method == "iqr":
+                    iqr_multiplier = step.get("iqr_multiplier", 1.5)
+                    q1 = combined[col].quantile(0.25)
+                    q3 = combined[col].quantile(0.75)
+                    iqr = q3 - q1
+                    lower_bound = q1 - iqr_multiplier * iqr
+                    upper_bound = q3 + iqr_multiplier * iqr
+                    mask = (combined[col] >= lower_bound) & (combined[col] <= upper_bound)
+                    combined = _filter_with_reason(combined, mask, f"{col}:remove_outliers_iqr")
+                    log("rows.remove_outliers", column=col, method="iqr", rows_in=before, rows_out=int(combined.shape[0]), lower_bound=lower_bound, upper_bound=upper_bound)
+
+
+    # --- bucket high-cardinality categoricals (only if configured) ---
+    if cfg.get("bucketing_rules"):
+        rules: Dict[str, int] = dict(cfg["bucketing_rules"])
+        for c, threshold in rules.items():
+            if c in combined.columns:
+                combined[c] = _bucket_categorical(combined[c], int(threshold))
+        log("categorical.bucket", rules=rules)
+
+    # --- emit drop audit if requested ---
+    audit_path = config.dropped_rows_path
+    _emit_drop_audit(audit_path)
+
+    config.output_path.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_parquet(config.output_path, index=False)
+    log("clean.saved", path=str(config.output_path))
